@@ -1,0 +1,6 @@
+{
+  "name": "Advanced Pharmacy Management System",
+  "description": "Enterprise-grade multi-branch pharmacy management system featuring real-time AI Voice Assistant (English, Amharic & Afaan Oromoo), advanced inventory, POS sales, stock transfers, loyalty, and financial analytics.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

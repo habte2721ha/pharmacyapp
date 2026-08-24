@@ -1,0 +1,293 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+/* Cross-Platform Typography & Mobile Phone Best View Font Compatibility */
+:root {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+  max-width: 100vw;
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+code, kbd, samp, pre, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Mobile Phone Display & Touch Accessibility Adjustments (WCAG 2.5.5 / 2.5.8 Touch Target Compliance) */
+@media (max-width: 768px), (pointer: coarse) {
+  /* Prevent iOS Safari auto-zoom on input focus while providing comfortable typing area */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]), 
+  select, 
+  textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+    padding-left: 0.875rem !important;
+    padding-right: 0.875rem !important;
+  }
+
+  /* Global minimum tap target and comfortable padding for buttons & clickable controls */
+  button, 
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  a.btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Icon buttons and square controls (p-1, p-1.5, p-2, p-2.5, p-3) */
+  button[class*="p-1"],
+  button[class*="p-2"],
+  button[class*="p-3"],
+  a[class*="p-1"],
+  a[class*="p-2"],
+  a[class*="p-3"],
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Accessible touch sizes for checkboxes and radios */
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+    min-height: 22px !important;
+    cursor: pointer;
+    margin: 4px;
+  }
+
+  /* Sidebar navigation items and tabs on smaller screens */
+  aside nav button,
+  aside nav a,
+  [role="tab"] {
+    min-height: 46px;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  /* Interactive tactile feedback for touch screens */
+  button:active,
+  a:active,
+  [role="button"]:active {
+    transform: scale(0.97);
+    transition: transform 0.05s ease-out;
+  }
+
+  /* Smooth momentum touch scrolling for data tables and panels on phones */
+  .overflow-x-auto, 
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Ensure modal dialogs and overlays stay within phone screen boundaries with comfortable padding */
+  .max-w-lg, .max-w-md, .max-w-xl, .max-w-2xl, .max-w-3xl, .max-w-4xl {
+    width: 96% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* Custom scrollbars for clean presentation on mobile and desktop */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.6);
+}
+
+/* Late-night Shift Dark Mode Overrides */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+}
+
+/* Container Backgrounds mapping to soft late-night slates */
+.dark .bg-white {
+  background-color: #1e293b !important; /* slate-800 */
+}
+
+.dark .bg-gray-50 {
+  background-color: #0b0f19 !important; /* slate-950 */
+}
+
+.dark .bg-gray-55 {
+  background-color: #0f172a !important; /* slate-900 */
+}
+
+.dark .bg-gray-100 {
+  background-color: #0f172a !important;
+}
+
+.dark .bg-gray-200 {
+  background-color: #334155 !important;
+}
+
+/* Table element & items striping */
+.dark .divide-y > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+.dark tr:nth-child(even) {
+  background-color: rgba(30, 41, 59, 0.4) !important;
+}
+
+/* Alert Boxes and Soft notifications mapped to beautiful deep translucent glows */
+.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+.dark .bg-purple-50 {
+  background-color: rgba(139, 92, 246, 0.12) !important;
+}
+
+/* Text Colors */
+.dark .text-gray-950 {
+  color: #ffffff !important;
+}
+.dark .text-gray-900 {
+  color: #f8fafc !important; /* slate-50 */
+}
+.dark .text-gray-850 {
+  color: #f1f5f9 !important; /* slate-100 */
+}
+.dark .text-gray-800 {
+  color: #e2e8f0 !important; /* slate-200 */
+}
+.dark .text-gray-750, .dark .text-gray-700 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+.dark .text-gray-600 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+.dark .text-gray-500 {
+  color: #64748b !important; /* slate-500 */
+}
+.dark .text-gray-400 {
+  color: #475569 !important; /* slate-600 */
+}
+
+/* Specific Alerts */
+.dark .text-emerald-800 {
+  color: #34d399 !important;
+}
+.dark .text-red-800 {
+  color: #f87171 !important;
+}
+.dark .text-amber-800 {
+  color: #fbbf24 !important;
+}
+.dark .text-blue-800 {
+  color: #60a5fa !important;
+}
+.dark .text-purple-800 {
+  color: #c084fc !important;
+}
+
+/* Borders */
+.dark .border,
+.dark .border-t,
+.dark .border-b,
+.dark .border-r,
+.dark .border-l,
+.dark .border-gray-100,
+.dark .border-gray-150,
+.dark .border-gray-200,
+.dark .border-gray-300 {
+  border-color: #334155 !important; /* slate-700 */
+}
+
+/* Interactive elements, Inputs, selects, and textareas */
+.dark input, 
+.dark select, 
+.dark textarea {
+  background-color: #0b0f19 !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+}
+
+.dark input:focus, 
+.dark select:focus, 
+.dark textarea:focus {
+  border-color: #10b981 !important; /* emerald focus glow */
+  outline: none;
+}
+
+.dark input::placeholder, 
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Dark mode specific shadow contrast enhancements */
+.dark .shadow-sm, 
+.dark .shadow-md, 
+.dark .shadow-lg, 
+.dark .shadow-xl, 
+.dark .shadow-2xl {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Recharts elements styling inside dark mode */
+.dark .recharts-cartesian-grid-horizontal line,
+.dark .recharts-cartesian-grid-vertical line {
+  stroke: #334155 !important;
+}
+.dark .recharts-text {
+  fill: #94a3b8 !important;
+}
+.dark .recharts-legend-item-text {
+  color: #cbd5e1 !important;
+}
+.dark .recharts-default-tooltip {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}

@@ -1,0 +1,82 @@
+{
+  "Medicines": [
+    {
+      "LegId": "legacy-med-1",
+      "DrugName": "Amoxicillin 500mg Capsule",
+      "Generic": "Amoxicillin",
+      "UPC": "AMX500LEGACY",
+      "SKUCode": "SKU-AMX-LEG",
+      "Group": "Antibiotics",
+      "RetailPrice": 120.0,
+      "CostPrice": 90.0,
+      "RxRequired": true,
+      "Pack": "Box of 100",
+      "MinStock": 20,
+      "Description": "High quality amoxicillin antibiotics from previous desktop DB."
+    },
+    {
+      "LegId": "legacy-med-2",
+      "DrugName": "Paracetamol 500mg Tablet",
+      "Generic": "Paracetamol",
+      "UPC": "PAR500LEGACY",
+      "SKUCode": "SKU-PAR-LEG",
+      "Group": "Analgesics",
+      "RetailPrice": 35.0,
+      "CostPrice": 25.0,
+      "RxRequired": false,
+      "Pack": "Box of 500",
+      "MinStock": 100,
+      "Description": "Generic fever reducer and painkiller from previous desktop database."
+    }
+  ],
+  "Customers": [
+    {
+      "CustomerId": "legacy-cust-1",
+      "FullName": "Abebe Kebede",
+      "Phone": "+251-91-1223344",
+      "Email": "abebe.kebede@gmail.com",
+      "Address": "Bole, Addis Ababa",
+      "Points": 150,
+      "CreditCap": 10000,
+      "Debt": 2500
+    },
+    {
+      "CustomerId": "legacy-cust-2",
+      "FullName": "Aster Tesfaye",
+      "Phone": "+251-91-5556677",
+      "Email": "aster.tesfaye@gmail.com",
+      "Address": "Kazanchis, Addis Ababa",
+      "Points": 450,
+      "CreditCap": 5000,
+      "Debt": 0
+    }
+  ],
+  "Sales": [
+    {
+      "SaleId": "legacy-sale-1",
+      "InvoiceNo": "INV-LEG-2025-001",
+      "Serial": 45001,
+      "SaleDate": "2025-05-12",
+      "SaleTime": "14:32",
+      "OperatorName": "Yonas Gebre",
+      "Customer": "Abebe Kebede",
+      "Gross": 240,
+      "Tax": 36,
+      "Discount": 0,
+      "Total": 276,
+      "PayType": "Cash",
+      "SaleLines": [
+        {
+          "LineId": "line-1-1",
+          "DrugId": "legacy-med-1",
+          "MedicineName": "Amoxicillin 500mg Capsule",
+          "Qty": 2,
+          "Price": 120,
+          "Discount": 0,
+          "VAT": 18,
+          "Total": 138
+        }
+      ]
+    }
+  ]
+}

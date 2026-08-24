@@ -1,0 +1,2233 @@
+{
+  "branches": [
+    {
+      "id": "b1",
+      "name": "Sonan Pharmacy Main Branch",
+      "code": "SP-MAIN",
+      "address": "120 Ring Road, Addis Ababa, Ethiopia",
+      "phone": "+251-11-6112233"
+    },
+    {
+      "id": "b2",
+      "name": "Sonan Pharmacy No. 2",
+      "code": "SP-B2",
+      "address": "Bole Medhanialem, Addis Ababa, Ethiopia",
+      "phone": "+251-11-6633445"
+    },
+    {
+      "id": "b3",
+      "name": "Sonan Pharmacy No. 3",
+      "code": "SP-B3",
+      "address": "Megenagna Square, Addis Ababa, Ethiopia",
+      "phone": "+251-11-6225566"
+    }
+  ],
+  "users": [
+    {
+      "id": "u1",
+      "username": "admin",
+      "name": "Yonas Gebre",
+      "email": "yonas.super@sonanpharma.com",
+      "role": "Super Administrator",
+      "branchId": "all",
+      "isActive": true,
+      "twoFactorEnabled": false,
+      "twoFactorSecret": "123456",
+      "passwordHash": "admin123",
+      "recognizedDevices": [
+        "dev_default"
+      ]
+    }
+  ],
+  "medicines": [
+    {
+      "id": "m1",
+      "name": "Amoxicillin 500mg",
+      "genericName": "Amoxicillin Trihydrate",
+      "barcode": "6281001123456",
+      "sku": "MED-AMX-500",
+      "category": "Antibiotics",
+      "price": 180,
+      "buyingPrice": 120,
+      "isPrescriptionRequired": true,
+      "unit": "Box",
+      "minStockLevel": 20,
+      "description": "Broad-spectrum penicillin antibiotic used to treat bacterial infections.",
+      "subCategory": "Penicillins"
+    },
+    {
+      "id": "m2",
+      "name": "Paracetamol 500mg",
+      "genericName": "Paracetamol (Acetaminophen)",
+      "barcode": "6281001123457",
+      "sku": "MED-PAR-500",
+      "category": "Analgesics / Antipyretics",
+      "price": 45,
+      "buyingPrice": 25,
+      "isPrescriptionRequired": false,
+      "unit": "Box",
+      "minStockLevel": 50,
+      "description": "Common pain reliever and fever reducer."
+    },
+    {
+      "id": "m3",
+      "name": "Metformin 850mg",
+      "genericName": "Metformin Hydrochloride",
+      "barcode": "6281001123458",
+      "sku": "MED-MET-850",
+      "category": "Anti-Diabetic",
+      "price": 240,
+      "buyingPrice": 160,
+      "isPrescriptionRequired": true,
+      "unit": "Box",
+      "minStockLevel": 15,
+      "description": "Oral diabetes medicine that helps control blood sugar levels."
+    },
+    {
+      "id": "m4",
+      "name": "Atorvastatin 20mg",
+      "genericName": "Atorvastatin Calcium",
+      "barcode": "6281001123459",
+      "sku": "MED-ATR-20",
+      "category": "Cardiovascular",
+      "price": 380,
+      "buyingPrice": 280,
+      "isPrescriptionRequired": true,
+      "unit": "Box",
+      "minStockLevel": 10,
+      "description": "Statins lipid-lowering medication used to prevent cardiovascular disease."
+    },
+    {
+      "id": "m5",
+      "name": "Omeprazole 20mg",
+      "genericName": "Omeprazole Delayed-Release",
+      "barcode": "6281001123460",
+      "sku": "MED-OMP-20",
+      "category": "Gastrointestinal",
+      "price": 90,
+      "buyingPrice": 55,
+      "isPrescriptionRequired": false,
+      "unit": "Box",
+      "minStockLevel": 25,
+      "description": "Proton pump inhibitor used to treat gastroesophageal reflux disease."
+    },
+    {
+      "id": "m6",
+      "name": "Ibuprofen 400mg",
+      "genericName": "Ibuprofen",
+      "barcode": "6281001123461",
+      "sku": "MED-IBU-400",
+      "category": "Analgesics / Antipyretics",
+      "price": 65,
+      "buyingPrice": 38,
+      "isPrescriptionRequired": false,
+      "unit": "Box",
+      "minStockLevel": 30,
+      "description": "Nonsteroidal anti-inflammatory drug (NSAID) used for pain and fever."
+    },
+    {
+      "id": "m7",
+      "name": "Azithromycin 500mg",
+      "genericName": "Azithromycin dihydrate",
+      "barcode": "6281001123462",
+      "sku": "MED-AZM-500",
+      "category": "Antibiotics",
+      "price": 420,
+      "buyingPrice": 300,
+      "isPrescriptionRequired": true,
+      "unit": "Box",
+      "minStockLevel": 15,
+      "description": "Macrolide antibiotic used for bacterial infections.",
+      "subCategory": "Macrolides"
+    },
+    {
+      "id": "m8",
+      "name": "Loratadine 10mg",
+      "genericName": "Loratadine",
+      "barcode": "6281001123463",
+      "sku": "MED-LOR-10",
+      "category": "Antihistamines",
+      "price": 80,
+      "buyingPrice": 48,
+      "isPrescriptionRequired": false,
+      "unit": "Box",
+      "minStockLevel": 20,
+      "description": "Non-drowsy 24-hour allergy relief tablets."
+    },
+    {
+      "id": "m9",
+      "name": "Nivea Soft Cream 100ml",
+      "genericName": "Moisturizing Cream",
+      "barcode": "4005900002123",
+      "sku": "COS-NIV-100",
+      "category": "cosmetics",
+      "price": 320,
+      "buyingPrice": 220,
+      "isPrescriptionRequired": false,
+      "unit": "Piece (PCS)",
+      "minStockLevel": 10,
+      "description": "Highly effective, intensive moisturizing cream for everyday use.",
+      "productType": "cosmetics"
+    },
+    {
+      "id": "m10",
+      "name": "Neutrogena Sunscreen SPF50",
+      "genericName": "Sunscreen Lotion",
+      "barcode": "0705011110022",
+      "sku": "COS-NEU-SPF",
+      "category": "cosmetics",
+      "price": 850,
+      "buyingPrice": 600,
+      "isPrescriptionRequired": false,
+      "unit": "Piece (PCS)",
+      "minStockLevel": 5,
+      "description": "Broad spectrum UVA/UVB protection sunscreen lotion.",
+      "productType": "cosmetics"
+    }
+  ],
+  "stockItems": [
+    {
+      "id": "st1",
+      "medicineId": "m1",
+      "branchId": "b1",
+      "batchNumber": "AMX-2026-01",
+      "expiryDate": "2026-11-02",
+      "quantity": 35,
+      "buyingPrice": 120,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st2",
+      "medicineId": "m2",
+      "branchId": "b1",
+      "batchNumber": "PAR-2026-04",
+      "expiryDate": "2027-03-02",
+      "quantity": 120,
+      "buyingPrice": 25,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st3",
+      "medicineId": "m2",
+      "branchId": "b1",
+      "batchNumber": "PAR-2026-EX",
+      "expiryDate": "2026-06-30",
+      "quantity": 15,
+      "buyingPrice": 25,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st4",
+      "medicineId": "m3",
+      "branchId": "b1",
+      "batchNumber": "MET-2026-08",
+      "expiryDate": "2026-08-04",
+      "quantity": 8,
+      "buyingPrice": 160,
+      "supplierId": "s2",
+      "isDamaged": false
+    },
+    {
+      "id": "st5",
+      "medicineId": "m4",
+      "branchId": "b1",
+      "batchNumber": "ATR-2026-03",
+      "expiryDate": "2026-08-19",
+      "quantity": 18,
+      "buyingPrice": 280,
+      "supplierId": "s2",
+      "isDamaged": false
+    },
+    {
+      "id": "st6",
+      "medicineId": "m5",
+      "branchId": "b1",
+      "batchNumber": "OMP-2026-11",
+      "expiryDate": "2027-06-30",
+      "quantity": 40,
+      "buyingPrice": 55,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st7",
+      "medicineId": "m1",
+      "branchId": "b2",
+      "batchNumber": "AMX-2026-02",
+      "expiryDate": "2026-12-02",
+      "quantity": 12,
+      "buyingPrice": 120,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st8",
+      "medicineId": "m2",
+      "branchId": "b2",
+      "batchNumber": "PAR-2026-05",
+      "expiryDate": "2027-01-31",
+      "quantity": 95,
+      "buyingPrice": 25,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st9",
+      "medicineId": "m3",
+      "branchId": "b2",
+      "batchNumber": "MET-2026-09",
+      "expiryDate": "2027-01-01",
+      "quantity": 22,
+      "buyingPrice": 160,
+      "supplierId": "s2",
+      "isDamaged": false
+    },
+    {
+      "id": "st10",
+      "medicineId": "m5",
+      "branchId": "b2",
+      "batchNumber": "OMP-2026-12",
+      "expiryDate": "2027-05-21",
+      "quantity": 3,
+      "buyingPrice": 55,
+      "supplierId": "s3",
+      "isDamaged": true,
+      "notes": "Water damage"
+    },
+    {
+      "id": "st11",
+      "medicineId": "m1",
+      "branchId": "b3",
+      "batchNumber": "AMX-2026-03",
+      "expiryDate": "2026-10-13",
+      "quantity": 45,
+      "buyingPrice": 120,
+      "supplierId": "s1",
+      "isDamaged": false
+    },
+    {
+      "id": "st12",
+      "medicineId": "m4",
+      "branchId": "b3",
+      "batchNumber": "ATR-2026-04",
+      "expiryDate": "2026-10-03",
+      "quantity": 5,
+      "buyingPrice": 280,
+      "supplierId": "s2",
+      "isDamaged": false
+    },
+    {
+      "id": "st13",
+      "medicineId": "m6",
+      "branchId": "b3",
+      "batchNumber": "IBU-2026-10",
+      "expiryDate": "2027-08-09",
+      "quantity": 80,
+      "buyingPrice": 38,
+      "supplierId": "s3",
+      "isDamaged": false
+    },
+    {
+      "id": "st14",
+      "medicineId": "m7",
+      "branchId": "b3",
+      "batchNumber": "AZM-2026-01",
+      "expiryDate": "2026-07-20",
+      "quantity": 20,
+      "buyingPrice": 300,
+      "supplierId": "s2",
+      "isDamaged": false
+    },
+    {
+      "id": "st15",
+      "medicineId": "m9",
+      "branchId": "b1",
+      "batchNumber": "NIV-2026-05",
+      "expiryDate": "2028-12-31",
+      "quantity": 25,
+      "buyingPrice": 220,
+      "supplierId": "s1",
+      "isDamaged": false,
+      "storeQuantity": 20,
+      "dispensaryQuantity": 5
+    },
+    {
+      "id": "st16",
+      "medicineId": "m10",
+      "branchId": "b1",
+      "batchNumber": "NEU-2026-11",
+      "expiryDate": "2028-06-30",
+      "quantity": 12,
+      "buyingPrice": 600,
+      "supplierId": "s1",
+      "isDamaged": false,
+      "storeQuantity": 10,
+      "dispensaryQuantity": 2
+    }
+  ],
+  "suppliers": [
+    {
+      "id": "s1",
+      "name": "Medco Pharmaceuticals PLC",
+      "phone": "+251-11-4402030",
+      "email": "sales@medco-ethiopia.com",
+      "address": "Lideta Industrial Zone, Addis Ababa",
+      "balance": 45000
+    },
+    {
+      "id": "s2",
+      "name": "Sonan Distributors Group",
+      "phone": "+251-11-6554433",
+      "email": "orders@sonandistributors.com",
+      "address": "Kirkos Subcity, Addis Ababa",
+      "balance": 12000
+    },
+    {
+      "id": "s3",
+      "name": "Apex Biotech Supplies",
+      "phone": "+251-11-5509988",
+      "email": "apex@biotech-supplies.com",
+      "address": "Akaki Kality, Addis Ababa",
+      "balance": 0
+    }
+  ],
+  "sales": [
+    {
+      "id": "sal1",
+      "invoiceNumber": "INV-2026-0001",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-07-01",
+      "time": "10:15",
+      "cashierId": "u4",
+      "cashierName": "Hana Assefa",
+      "customerId": "c1",
+      "customerName": "Chala Tolossa",
+      "subtotal": 270,
+      "discount": 10,
+      "vat": 39,
+      "total": 299,
+      "paymentMethod": "Cash",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si1",
+          "medicineId": "m1",
+          "medicineName": "Amoxicillin 500mg",
+          "batchNumber": "AMX-2026-01",
+          "quantity": 1,
+          "unitPrice": 180,
+          "discount": 5,
+          "vatAmount": 26.25,
+          "total": 201.25
+        },
+        {
+          "id": "si2",
+          "medicineId": "m5",
+          "medicineName": "Omeprazole 20mg",
+          "batchNumber": "OMP-2026-11",
+          "quantity": 1,
+          "unitPrice": 90,
+          "discount": 5,
+          "vatAmount": 12.75,
+          "total": 97.75
+        }
+      ],
+      "serialNumber": 1
+    },
+    {
+      "id": "sal2",
+      "invoiceNumber": "INV-2026-0002",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-07-02",
+      "time": "14:30",
+      "cashierId": "u4",
+      "cashierName": "Hana Assefa",
+      "customerId": "c3",
+      "customerName": "Dr. Dawit Mezgebu",
+      "subtotal": 760,
+      "discount": 50,
+      "vat": 106.5,
+      "total": 816.5,
+      "paymentMethod": "Credit",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si3",
+          "medicineId": "m4",
+          "medicineName": "Atorvastatin 20mg",
+          "batchNumber": "ATR-2026-03",
+          "quantity": 2,
+          "unitPrice": 380,
+          "discount": 50,
+          "vatAmount": 106.5,
+          "total": 816.5
+        }
+      ],
+      "serialNumber": 2
+    },
+    {
+      "id": "sal3",
+      "invoiceNumber": "INV-2026-0003",
+      "branchId": "b2",
+      "branchName": "Sonan Pharmacy No. 2",
+      "date": "2026-07-03",
+      "time": "11:45",
+      "cashierId": "u2",
+      "cashierName": "Selam Tesfaye",
+      "subtotal": 90,
+      "discount": 0,
+      "vat": 13.5,
+      "total": 103.5,
+      "paymentMethod": "Cash",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si4",
+          "medicineId": "m2",
+          "medicineName": "Paracetamol 500mg",
+          "batchNumber": "PAR-2026-05",
+          "quantity": 2,
+          "unitPrice": 45,
+          "discount": 0,
+          "vatAmount": 13.5,
+          "total": 103.5
+        }
+      ],
+      "serialNumber": 1
+    },
+    {
+      "id": "sal4",
+      "invoiceNumber": "INV-2026-0004",
+      "branchId": "b3",
+      "branchName": "Sonan Pharmacy No. 3",
+      "date": "2026-07-04",
+      "time": "16:20",
+      "cashierId": "u1",
+      "cashierName": "Yonas Gebre",
+      "subtotal": 540,
+      "discount": 40,
+      "vat": 75,
+      "total": 575,
+      "paymentMethod": "Card",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si5",
+          "medicineId": "m1",
+          "medicineName": "Amoxicillin 500mg",
+          "batchNumber": "AMX-2026-03",
+          "quantity": 3,
+          "unitPrice": 180,
+          "discount": 40,
+          "vatAmount": 75,
+          "total": 575
+        }
+      ],
+      "serialNumber": 1
+    },
+    {
+      "id": "sal5",
+      "invoiceNumber": "INV-2026-0005",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-08-13",
+      "time": "09:00",
+      "cashierId": "u4",
+      "cashierName": "Hana Assefa",
+      "customerId": "c1",
+      "customerName": "Chala Tolossa",
+      "subtotal": 180,
+      "discount": 0,
+      "vat": 27,
+      "total": 207,
+      "paymentMethod": "Cash",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si6",
+          "medicineId": "m1",
+          "medicineName": "Amoxicillin 500mg",
+          "batchNumber": "AMX-2026-01",
+          "quantity": 1,
+          "unitPrice": 180,
+          "discount": 0,
+          "vatAmount": 27,
+          "total": 207
+        }
+      ],
+      "serialNumber": 3
+    },
+    {
+      "id": "sal6",
+      "invoiceNumber": "INV-2026-0006",
+      "branchId": "b2",
+      "branchName": "Sonan Pharmacy No. 2",
+      "date": "2026-08-13",
+      "time": "10:30",
+      "cashierId": "u2",
+      "cashierName": "Selam Tesfaye",
+      "subtotal": 300,
+      "discount": 10,
+      "vat": 43.5,
+      "total": 333.5,
+      "paymentMethod": "Cash",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si7",
+          "medicineId": "m2",
+          "medicineName": "Paracetamol 500mg",
+          "batchNumber": "PAR-2026-05",
+          "quantity": 4,
+          "unitPrice": 45,
+          "discount": 5,
+          "vatAmount": 26.25,
+          "total": 201.25
+        },
+        {
+          "id": "si8",
+          "medicineId": "c_m6",
+          "medicineName": "Johnson Baby Soap 100g",
+          "batchNumber": "COS-SOP-2026",
+          "quantity": 2,
+          "unitPrice": 60,
+          "discount": 5,
+          "vatAmount": 17.25,
+          "total": 132.25
+        }
+      ],
+      "serialNumber": 2
+    },
+    {
+      "id": "sal7",
+      "invoiceNumber": "INV-2026-0007",
+      "branchId": "b3",
+      "branchName": "Sonan Pharmacy No. 3",
+      "date": "2026-08-13",
+      "time": "11:15",
+      "cashierId": "u1",
+      "cashierName": "Admin",
+      "subtotal": 500,
+      "discount": 20,
+      "vat": 72,
+      "total": 552,
+      "paymentMethod": "Bank CBE",
+      "status": "Completed",
+      "items": [
+        {
+          "id": "si9",
+          "medicineId": "m3",
+          "medicineName": "Metformin 850mg",
+          "batchNumber": "MET-2026-08",
+          "quantity": 2,
+          "unitPrice": 250,
+          "discount": 20,
+          "vatAmount": 72,
+          "total": 552
+        }
+      ],
+      "serialNumber": 2
+    }
+  ],
+  "purchaseOrders": [
+    {
+      "id": "po1",
+      "poNumber": "PO-2026-0001",
+      "supplierId": "s1",
+      "supplierName": "Medco Pharmaceuticals PLC",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-06-25",
+      "total": 2400,
+      "status": "Received",
+      "items": [
+        {
+          "id": "pi1",
+          "medicineId": "m1",
+          "medicineName": "Amoxicillin 500mg",
+          "quantity": 20,
+          "unitPrice": 120,
+          "total": 2400
+        }
+      ],
+      "receivedDate": "2026-06-27",
+      "receivedBy": "Tariku Alemu"
+    },
+    {
+      "id": "po2",
+      "poNumber": "PO-2026-0002",
+      "supplierId": "s2",
+      "supplierName": "Sonan Distributors Group",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-07-03",
+      "total": 4200,
+      "status": "Sent",
+      "items": [
+        {
+          "id": "pi2",
+          "medicineId": "m3",
+          "medicineName": "Metformin 850mg",
+          "quantity": 15,
+          "unitPrice": 160,
+          "total": 2400
+        },
+        {
+          "id": "pi3",
+          "medicineId": "m4",
+          "medicineName": "Atorvastatin 20mg",
+          "quantity": 5,
+          "unitPrice": 280,
+          "total": 1400
+        }
+      ]
+    }
+  ],
+  "stockTransfers": [
+    {
+      "id": "t1",
+      "transferNumber": "ST-2026-0001",
+      "sourceBranchId": "b1",
+      "sourceBranchName": "Sonan Pharmacy Main Branch",
+      "targetBranchId": "b2",
+      "targetBranchName": "Sonan Pharmacy No. 2",
+      "date": "2026-07-02",
+      "status": "Received",
+      "items": [
+        {
+          "medicineId": "m1",
+          "medicineName": "Amoxicillin 500mg",
+          "quantity": 5,
+          "batchNumber": "AMX-2026-01",
+          "expiryDate": "2026-11-02"
+        }
+      ],
+      "requestedBy": "Selam Tesfaye",
+      "processedBy": "Yonas Gebre"
+    },
+    {
+      "id": "t2",
+      "transferNumber": "ST-2026-0002",
+      "sourceBranchId": "b1",
+      "sourceBranchName": "Sonan Pharmacy Main Branch",
+      "targetBranchId": "b3",
+      "targetBranchName": "Sonan Pharmacy No. 3",
+      "date": "2026-07-05",
+      "status": "Pending",
+      "items": [
+        {
+          "medicineId": "m2",
+          "medicineName": "Paracetamol 500mg",
+          "quantity": 20,
+          "batchNumber": "PAR-2026-04",
+          "expiryDate": "2027-03-02"
+        }
+      ],
+      "requestedBy": "Dr. Girma Wolde"
+    }
+  ],
+  "customers": [
+    {
+      "id": "c1",
+      "name": "Chala Tolossa",
+      "phone": "+251-91-1223344",
+      "email": "chala.t@gmail.com",
+      "address": "Bole, Addis Ababa",
+      "loyaltyPoints": 340,
+      "creditLimit": 15000,
+      "creditBalance": 3200
+    },
+    {
+      "id": "c2",
+      "name": "Aster Ayele",
+      "phone": "+251-91-1334455",
+      "email": "aster.ayele@yahoo.com",
+      "address": "Kazanchis, Addis Ababa",
+      "loyaltyPoints": 120,
+      "creditLimit": 5000,
+      "creditBalance": 0
+    },
+    {
+      "id": "c3",
+      "name": "Dr. Dawit Mezgebu",
+      "phone": "+251-91-1445566",
+      "email": "dawit.m@clinic.com",
+      "address": "Piazza, Addis Ababa",
+      "loyaltyPoints": 850,
+      "creditLimit": 50000,
+      "creditBalance": 14500
+    }
+  ],
+  "expenses": [
+    {
+      "id": "e1",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-06-30",
+      "category": "Utilities",
+      "amount": 3500,
+      "description": "Electricity and high-speed internet bill for main clinic",
+      "recordedBy": "Martha Bekele"
+    },
+    {
+      "id": "e2",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "date": "2026-07-03",
+      "category": "Salaries",
+      "amount": 12000,
+      "description": "Part-time intern pharmacist salary",
+      "recordedBy": "Martha Bekele"
+    },
+    {
+      "id": "e3",
+      "branchId": "b2",
+      "branchName": "Sonan Pharmacy No. 2",
+      "date": "2026-07-02",
+      "category": "Rent",
+      "amount": 8000,
+      "description": "Monthly storage annex rent",
+      "recordedBy": "Selam Tesfaye"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "log_1786868690892",
+      "date": "2026-08-16",
+      "time": "08:24 AM",
+      "userId": "customer",
+      "username": "Almaz Bekele",
+      "role": "Customer",
+      "action": "Incoming Consultation Call",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main",
+      "ipAddress": "127.0.0.1",
+      "details": "Customer Almaz Bekele (+251911223344) requested a Video Call regarding \"Antibiotic & Prescription Consultation\"."
+    },
+    {
+      "id": "l_t3upx",
+      "date": "2026-07-10",
+      "time": "14:29",
+      "userId": "u1",
+      "username": "admin",
+      "role": "Super Administrator",
+      "action": "Login Success",
+      "branchId": "all",
+      "branchName": "All Branches",
+      "ipAddress": "127.0.0.1",
+      "details": "User Yonas Gebre logged in successfully on recognized device dev_default."
+    },
+    {
+      "id": "l_wuwc1",
+      "date": "2026-07-10",
+      "time": "14:29",
+      "userId": "u1",
+      "username": "admin",
+      "role": "Super Administrator",
+      "action": "Login Attempt",
+      "branchId": "all",
+      "branchName": "All Branches",
+      "ipAddress": "127.0.0.1",
+      "details": "User Yonas Gebre initiated login sequence from device dev_default."
+    },
+    {
+      "id": "l1",
+      "date": "2026-06-30",
+      "time": "09:00",
+      "userId": "u1",
+      "username": "admin",
+      "role": "Super Administrator",
+      "action": "Login",
+      "branchId": "all",
+      "branchName": "All Branches",
+      "ipAddress": "192.168.1.10",
+      "details": "Successful administrator login with Two-Factor Verification."
+    },
+    {
+      "id": "l2",
+      "date": "2026-06-30",
+      "time": "14:35",
+      "userId": "u3",
+      "username": "pharmacist1",
+      "role": "Pharmacist",
+      "action": "Stock Alert Resolved",
+      "branchId": "b1",
+      "branchName": "Sonan Pharmacy Main Branch",
+      "ipAddress": "192.168.1.45",
+      "details": "Stock alert flagged for medicine Metformin 850mg (Batch MET-2026-08)"
+    },
+    {
+      "id": "l3",
+      "date": "2026-07-04",
+      "time": "17:45",
+      "userId": "u1",
+      "username": "admin",
+      "role": "Super Administrator",
+      "action": "Database Backup",
+      "branchId": "all",
+      "branchName": "All Branches",
+      "ipAddress": "192.168.1.10",
+      "details": "Manual database full backup triggered. Destination: backup_sonan_20260627_full.json"
+    }
+  ],
+  "backupRecords": [
+    {
+      "id": "back1",
+      "date": "2026-06-30",
+      "time": "23:00",
+      "type": "Full",
+      "branchName": "All Branches",
+      "filename": "sonan_backup_20260623_auto.json",
+      "size": "184 KB",
+      "createdBy": "System Scheduler",
+      "scheduleType": "Auto",
+      "status": "Success",
+      "logs": [
+        "Initializing backup procedure...",
+        "Target database schema: Sonan Pharmacy Multi-Branch Relational JSON V2",
+        "Table [branches]: 3 records compiled successfully.",
+        "Table [users]: 7 records compiled successfully.",
+        "Table [medicines]: 8 records compiled successfully.",
+        "Table [stockItems]: 14 records compiled successfully.",
+        "Table [suppliers]: 3 records compiled successfully.",
+        "Table [sales]: 3 records compiled successfully.",
+        "Table [purchaseOrders]: 1 record compiled successfully.",
+        "Table [expenses]: 2 records compiled successfully.",
+        "Table [auditLogs]: 2 records compiled successfully.",
+        "Backup compression complete. Hash: 8ae9b34cd56aef19",
+        "Saved successfully on Cloud Backups Storage."
+      ]
+    }
+  ],
+  "pharmacyNotes": [
+    {
+      "id": "note_1",
+      "text": "Reminder: The cold chain refrigerator temperature needs to be logged at the start and end of every shift. Keep it between 2°C and 8°C.",
+      "authorName": "Yonas Gebre",
+      "role": "Super Administrator",
+      "date": "2026-06-30",
+      "time": "08:00"
+    },
+    {
+      "id": "note_2",
+      "text": "Azithromycin is running low in Branch 1. I requested a stock transfer from Branch 2, please approve it when you start your manager shift.",
+      "authorName": "Selam Tesfaye",
+      "role": "Branch Manager",
+      "date": "2026-06-30",
+      "time": "16:30"
+    }
+  ],
+  "supplierTransactions": [],
+  "stockMovements": [],
+  "institution": {
+    "name": "Sonan Pharmacy",
+    "address": "120 Ring Road, Addis Ababa, Ethiopia",
+    "phone": "+251-11-6112233",
+    "email": "info@sonanpharma.com",
+    "tinNumber": "1234567890",
+    "logoUrl": "",
+    "promoVideos": [
+      {
+        "id": "promo-default-1",
+        "title": "✨ Welcome to Sonan Pharmacy - Quality Healthcare & Cosmetics 🌿",
+        "description": "Explore our wide selection of certified medicines, genuine cosmetics, and healthcare supplies with fast delivery.",
+        "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+        "thumbnailUrl": "",
+        "active": true,
+        "createdAt": "2026-08-16T08:25:11.591Z"
+      }
+    ],
+    "selectivePopupConfig": {
+      "enabled": true,
+      "popupTitle": "🔥 Special Customer Deals & Featured Items",
+      "popupSubtitle": "Handpicked promotional discounts & essential medical specials chosen for you today",
+      "autoShowDelaySeconds": 2,
+      "showOncePerSession": true,
+      "items": [
+        {
+          "id": "pop_1",
+          "medicineId": "m1",
+          "title": "Amoxicillin 500mg Antibiotic Special",
+          "subtitle": "High-grade Antibiotic Treatment",
+          "badge": "🔥 20% OFF Deal",
+          "description": "Certified broad spectrum antibiotic capsules for respiratory & bacterial infection care.",
+          "imageUrl": "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&auto=format&fit=crop&q=80",
+          "price": 144,
+          "originalPrice": 180,
+          "discountPercentage": 20,
+          "active": true,
+          "popupTrigger": "auto",
+          "ctaText": "Add to Order"
+        },
+        {
+          "id": "pop_2",
+          "medicineId": "c_m1",
+          "title": "Vitamin C Glow Facial Serum 30ml",
+          "subtitle": "Derma-Approved Hydrating Skincare",
+          "badge": "✨ Best Seller Cosmetic",
+          "description": "Infused with hyaluronic acid and antioxidant complex for smooth, radiant skin.",
+          "imageUrl": "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80",
+          "price": 495,
+          "originalPrice": 550,
+          "discountPercentage": 10,
+          "active": true,
+          "popupTrigger": "auto",
+          "ctaText": "Claim Special Price"
+        },
+        {
+          "id": "pop_3",
+          "medicineId": "m2",
+          "title": "Paracetamol 500mg Extra Pain Relief",
+          "subtitle": "Fast Pain & Fever Relief Tablets",
+          "badge": "👍 Pharmacist Choice",
+          "description": "Rapid acting fever reducer and headache relief tablets for daily home health.",
+          "imageUrl": "https://images.unsplash.com/photo-1550572017-edd951aa8f72?w=600&auto=format&fit=crop&q=80",
+          "price": 25,
+          "originalPrice": 30,
+          "discountPercentage": 16,
+          "active": true,
+          "popupTrigger": "auto",
+          "ctaText": "Quick Buy"
+        }
+      ]
+    }
+  },
+  "externalPharmacies": [
+    {
+      "id": "ep1",
+      "name": "Zewditu Hospital Pharmacy",
+      "phone": "+251-11-5511223",
+      "address": "Zewditu Street, Addis Ababa",
+      "tinNumber": "9928374615"
+    },
+    {
+      "id": "ep2",
+      "name": "St. Paulos General Hospital Pharmacy",
+      "phone": "+251-11-2750125",
+      "address": "Swaziland Street, Addis Ababa",
+      "tinNumber": "7738491029"
+    }
+  ],
+  "teleconsultations": [
+    {
+      "id": "tele_690892",
+      "customerName": "Almaz Bekele",
+      "customerPhone": "+251911223344",
+      "customerEmail": "almaz@example.com",
+      "type": "video",
+      "topic": "Antibiotic & Prescription Consultation",
+      "status": "completed",
+      "pharmacistName": "Dr. Yohannes (Licensed Clinical Pharmacist)",
+      "pharmacistId": "u_pharm",
+      "createdAt": "2026-08-16 08:24 AM",
+      "updatedAt": "2026-08-16 08:24 AM",
+      "videoCallRoomId": "room_sonan_3ovao8w",
+      "messages": [
+        {
+          "id": "msg_sys_1786868690892",
+          "sender": "system",
+          "senderName": "Sonan Teleconsultation System",
+          "text": "🟢 Teleconsultation requested by customer for \"Antibiotic & Prescription Consultation\" (Live Video Call). Waiting for pharmacist to connect.",
+          "timestamp": "08:24 AM"
+        },
+        {
+          "id": "msg_pharm_welcome_1786868690893",
+          "sender": "pharmacist",
+          "senderName": "Dr. Yohannes (Licensed Pharmacist)",
+          "text": "Hello Almaz Bekele! I am Dr. Yohannes, licensed clinical pharmacist on duty at Sonan Pharmacy. I am reviewing your request regarding Antibiotic & Prescription Consultation. How can I assist you with your medication dosage, schedule, side effects, or cosmetics today?",
+          "timestamp": "08:24 AM"
+        },
+        {
+          "id": "msg_cust_1786868690894",
+          "sender": "customer",
+          "senderName": "Almaz Bekele",
+          "text": "Hello, I have questions about my antibiotic dosage.",
+          "timestamp": "08:24 AM"
+        }
+      ]
+    }
+  ],
+  "categories": [
+    {
+      "id": "cat_antibiotics",
+      "name": "Antibiotics",
+      "productType": "medicine",
+      "description": "Antibacterial agents, penicillins, cephalosporins, broad-spectrum, antimalarials, and macrolides",
+      "color": "emerald",
+      "subCategories": [
+        {
+          "id": "sub_ant_1",
+          "name": "Penicillins",
+          "description": "Amoxicillin, Ampicillin, Augmentin, Cloxacillin, Penicillin V/G"
+        },
+        {
+          "id": "sub_ant_2",
+          "name": "Cephalosporins",
+          "description": "Cefalexin, Cefuroxime, Ceftriaxone, Cefixime, Cefepime"
+        },
+        {
+          "id": "sub_ant_3",
+          "name": "Carbapenems",
+          "description": "Meropenem, Imipenem/Cilastatin, Ertapenem, Doripenem"
+        },
+        {
+          "id": "sub_ant_4",
+          "name": "Monobactams",
+          "description": "Aztreonam and monocyclic beta-lactam antibiotics"
+        },
+        {
+          "id": "sub_ant_5",
+          "name": "Macrolides",
+          "description": "Azithromycin, Clarithromycin, Erythromycin, Roxithromycin"
+        },
+        {
+          "id": "sub_ant_6",
+          "name": "Tetracyclines",
+          "description": "Doxycycline, Tetracycline, Minocycline, Tigecycline"
+        },
+        {
+          "id": "sub_ant_7",
+          "name": "Aminoglycosides",
+          "description": "Gentamicin, Amikacin, Tobramycin, Streptomycin, Neomycin"
+        },
+        {
+          "id": "sub_ant_8",
+          "name": "Fluoroquinolones",
+          "description": "Ciprofloxacin, Levofloxacin, Norfloxacin, Moxifloxacin, Ofloxacin"
+        },
+        {
+          "id": "sub_ant_9",
+          "name": "Sulfonamides",
+          "description": "Co-trimoxazole, Sulfamethoxazole/Trimethoprim, Sulfadiazine"
+        },
+        {
+          "id": "sub_ant_10",
+          "name": "Lincosamides",
+          "description": "Clindamycin, Lincomycin"
+        },
+        {
+          "id": "sub_ant_11",
+          "name": "Glycopeptides",
+          "description": "Vancomycin, Teicoplanin, Telavancin"
+        },
+        {
+          "id": "sub_ant_12",
+          "name": "Nitroimidazoles",
+          "description": "Metronidazole, Tinidazole, Secnidazole"
+        },
+        {
+          "id": "sub_ant_13",
+          "name": "Oxazolidinones",
+          "description": "Linezolid, Tedizolid"
+        },
+        {
+          "id": "sub_ant_14",
+          "name": "Other Antibiotics",
+          "description": "Polymyxins (Colistin), Nitrofurantoin, Fosfomycin, Chloramphenicol, and other antibacterials"
+        }
+      ]
+    },
+    {
+      "id": "cat_analgesics",
+      "name": "Analgesics",
+      "productType": "medicine",
+      "description": "Pain relief, NSAIDs, antipyretics, and anti-inflammatories",
+      "color": "amber",
+      "subCategories": [
+        {
+          "id": "sub_ana_1",
+          "name": "NSAIDs",
+          "description": "Nonsteroidal anti-inflammatory"
+        },
+        {
+          "id": "sub_ana_2",
+          "name": "Opioids / Pain Relief",
+          "description": "Controlled pain management"
+        },
+        {
+          "id": "sub_ana_3",
+          "name": "Antipyretics (Fever)",
+          "description": "Fever reducing agents"
+        },
+        {
+          "id": "sub_ana_4",
+          "name": "Topical Analgesic Gels",
+          "description": "External pain rubs"
+        },
+        {
+          "id": "sub_ana_5",
+          "name": "Pediatric Pain Drops",
+          "description": "Child fever and pain drops"
+        }
+      ]
+    },
+    {
+      "id": "cat_cardiovascular",
+      "name": "Cardiovascular (CV)",
+      "productType": "medicine",
+      "description": "Cardiac therapeutics, antihypertensives, and statins",
+      "color": "rose",
+      "subCategories": [
+        {
+          "id": "sub_cv_1",
+          "name": "CHF",
+          "description": "Heart failure management"
+        },
+        {
+          "id": "sub_cv_2",
+          "name": "Antihypertensives",
+          "description": "Blood pressure regulation"
+        },
+        {
+          "id": "sub_cv_3",
+          "name": "Antiarrhythmics",
+          "description": "Arrhythmia management"
+        },
+        {
+          "id": "sub_cv_4",
+          "name": "Anticoagulants / Blood Thinners",
+          "description": "Antithrombotic agents"
+        },
+        {
+          "id": "sub_cv_5",
+          "name": "Statins / Cholesterol",
+          "description": "Lipid lowering agents"
+        },
+        {
+          "id": "sub_cv_6",
+          "name": "Diuretics",
+          "description": "Fluid control diuretics"
+        }
+      ]
+    },
+    {
+      "id": "cat_gastrointestinal",
+      "name": "Gastrointestinal (GIT)",
+      "productType": "medicine",
+      "description": "Antacids, PPIs, anti-diarrheal, laxatives, and antiemetics",
+      "color": "blue",
+      "subCategories": [
+        {
+          "id": "sub_git_1",
+          "name": "Antacids / PPIs",
+          "description": "Acid suppression"
+        },
+        {
+          "id": "sub_git_2",
+          "name": "Laxatives",
+          "description": "Bowel stimulants"
+        },
+        {
+          "id": "sub_git_3",
+          "name": "Anti-Diarrheal",
+          "description": "Motility inhibitors"
+        },
+        {
+          "id": "sub_git_4",
+          "name": "Antiemetics / Anti-Nausea",
+          "description": "Nausea control"
+        },
+        {
+          "id": "sub_git_5",
+          "name": "Probiotics & Enzymes",
+          "description": "Gut microbiome balance"
+        }
+      ]
+    },
+    {
+      "id": "cat_respiratory",
+      "name": "Respiratory",
+      "productType": "medicine",
+      "description": "Asthma inhalers, antihistamines, expectorants, and decongestants",
+      "color": "sky",
+      "subCategories": [
+        {
+          "id": "sub_resp_1",
+          "name": "Inhalers / Nebulizers",
+          "description": "Aerosol delivery"
+        },
+        {
+          "id": "sub_resp_2",
+          "name": "Antihistamines / Allergy",
+          "description": "Allergy relief"
+        },
+        {
+          "id": "sub_resp_3",
+          "name": "Cough Syrups & Expectorants",
+          "description": "Cough mixtures"
+        },
+        {
+          "id": "sub_resp_4",
+          "name": "Nasal Decongestants",
+          "description": "Decongestant sprays"
+        }
+      ]
+    },
+    {
+      "id": "cat_dermatological",
+      "name": "Dermatological",
+      "productType": "medicine",
+      "description": "Topical steroids, antifungal creams, and burn care",
+      "color": "orange",
+      "subCategories": [
+        {
+          "id": "sub_derm_1",
+          "name": "Antifungal Creams",
+          "description": "Cutaneous antifungals"
+        },
+        {
+          "id": "sub_derm_2",
+          "name": "Topical Steroids",
+          "description": "Anti-inflammatory creams"
+        },
+        {
+          "id": "sub_derm_3",
+          "name": "Antiseptic Ointments",
+          "description": "Wound care"
+        },
+        {
+          "id": "sub_derm_4",
+          "name": "Burn Care",
+          "description": "Silver sulfadiazine, gels"
+        },
+        {
+          "id": "sub_derm_5",
+          "name": "Acne Treatments",
+          "description": "Acne topical agents"
+        }
+      ]
+    },
+    {
+      "id": "cat_ent",
+      "name": "ENT",
+      "productType": "medicine",
+      "description": "Ear, nose, throat, and ophthalmic drops and lozenges",
+      "color": "cyan",
+      "subCategories": [
+        {
+          "id": "sub_ent_1",
+          "name": "Ear Drops",
+          "description": "Otic drops"
+        },
+        {
+          "id": "sub_ent_2",
+          "name": "Nasal Sprays",
+          "description": "Steroid & saline sprays"
+        },
+        {
+          "id": "sub_ent_3",
+          "name": "Throat Lozenges/Sprays",
+          "description": "Sore throat relief"
+        },
+        {
+          "id": "sub_ent_4",
+          "name": "Eye Drops / Ointments",
+          "description": "Ophthalmic solutions"
+        }
+      ]
+    },
+    {
+      "id": "cat_vitamins",
+      "name": "Vitamins & Minerals",
+      "productType": "medicine",
+      "description": "Multivitamins, calcium, vitamin D, and iron supplements",
+      "color": "lime",
+      "subCategories": [
+        {
+          "id": "sub_vit_1",
+          "name": "Multivitamins",
+          "description": "Complete multivitamins"
+        },
+        {
+          "id": "sub_vit_2",
+          "name": "Iron / Anemia Supplements",
+          "description": "Ferrous formulations"
+        },
+        {
+          "id": "sub_vit_3",
+          "name": "Calcium & Vitamin D",
+          "description": "Bone health"
+        },
+        {
+          "id": "sub_vit_4",
+          "name": "Vitamin C / Immunity",
+          "description": "Immune support"
+        },
+        {
+          "id": "sub_vit_5",
+          "name": "Pediatric Vitamin Drops",
+          "description": "Infant supplements"
+        }
+      ]
+    },
+    {
+      "id": "cat_antifungal",
+      "name": "Anti Fungal",
+      "productType": "medicine",
+      "description": "Oral and topical antifungal therapeutics",
+      "color": "purple",
+      "subCategories": [
+        {
+          "id": "sub_af_1",
+          "name": "Oral Antifungal",
+          "description": "Fluconazole, Itraconazole"
+        },
+        {
+          "id": "sub_af_2",
+          "name": "Topical Creams",
+          "description": "Clotrimazole, Terbinafine"
+        },
+        {
+          "id": "sub_af_3",
+          "name": "Vaginal Suppositories",
+          "description": "Pessaries and ovules"
+        }
+      ]
+    },
+    {
+      "id": "cat_antiprotozoal",
+      "name": "Antiprotozoal",
+      "productType": "medicine",
+      "description": "Metronidazole, antimalarials, and anti-giardiasis drugs",
+      "color": "teal",
+      "subCategories": [
+        {
+          "id": "sub_ap_1",
+          "name": "Metronidazole & Tinidazole",
+          "description": "Anaerobic antimicrobials"
+        },
+        {
+          "id": "sub_ap_2",
+          "name": "Anti-Amoebic",
+          "description": "Amoebiasis treatments"
+        },
+        {
+          "id": "sub_ap_3",
+          "name": "Anti-Giardiasis",
+          "description": "Giardiasis regimens"
+        },
+        {
+          "id": "sub_ap_4",
+          "name": "Antimalarial / Malaria",
+          "description": "Coartem, Artemether"
+        }
+      ]
+    },
+    {
+      "id": "cat_deworming",
+      "name": "Deworming",
+      "productType": "medicine",
+      "description": "Anti-helminthics, albendazole, and deworming syrups",
+      "color": "yellow",
+      "subCategories": [
+        {
+          "id": "sub_dew_1",
+          "name": "Albendazole & Mebendazole",
+          "description": "Standard dewormers"
+        },
+        {
+          "id": "sub_dew_2",
+          "name": "Broad Spectrum Dewormers",
+          "description": "Multi-parasite coverage"
+        },
+        {
+          "id": "sub_dew_3",
+          "name": "Pediatric Deworming Syrups",
+          "description": "Oral syrups for kids"
+        },
+        {
+          "id": "sub_dew_4",
+          "name": "Anti-Helminthic",
+          "description": "Tapeworm & roundworm"
+        }
+      ]
+    },
+    {
+      "id": "cat_hormones",
+      "name": "Hormones",
+      "productType": "medicine",
+      "description": "Diabetes insulin, thyroid, contraceptives, and steroids",
+      "color": "indigo",
+      "subCategories": [
+        {
+          "id": "sub_hor_1",
+          "name": "Diabetes / Insulin",
+          "description": "Metformin, Insulin, Glibenclamide"
+        },
+        {
+          "id": "sub_hor_2",
+          "name": "Thyroid Medications",
+          "description": "Levothyroxine"
+        },
+        {
+          "id": "sub_hor_3",
+          "name": "Oral Contraceptive Pills",
+          "description": "Birth control"
+        },
+        {
+          "id": "sub_hor_4",
+          "name": "Steroids",
+          "description": "Prednisolone, Dexamethasone"
+        }
+      ]
+    },
+    {
+      "id": "cat_controlled",
+      "name": "Controlled Drugs",
+      "productType": "medicine",
+      "description": "Schedule II-IV controlled psychotropics and narcotics",
+      "color": "red",
+      "subCategories": [
+        {
+          "id": "sub_ctrl_1",
+          "name": "Sedatives / Anxiolytics",
+          "description": "Diazepam, Lorazepam"
+        },
+        {
+          "id": "sub_ctrl_2",
+          "name": "Narcotic Analgesics",
+          "description": "Morphine, Tramadol"
+        },
+        {
+          "id": "sub_ctrl_3",
+          "name": "Anticonvulsants",
+          "description": "Phenobarbital, Phenytoin"
+        }
+      ]
+    },
+    {
+      "id": "cat_supplies",
+      "name": "Supplies",
+      "productType": "medicine",
+      "description": "Medical consumables, diagnostic strips, bandages, and syringes",
+      "color": "zinc",
+      "subCategories": [
+        {
+          "id": "sub_sup_1",
+          "name": "Syringes & Needles",
+          "description": "Sterile disposables"
+        },
+        {
+          "id": "sub_sup_2",
+          "name": "Bandages & Gauze",
+          "description": "Wound dressing"
+        },
+        {
+          "id": "sub_sup_3",
+          "name": "Gloves & Masks",
+          "description": "PPE equipment"
+        },
+        {
+          "id": "sub_sup_4",
+          "name": "Catheters & Tubes",
+          "description": "Clinical tubing"
+        },
+        {
+          "id": "sub_sup_5",
+          "name": "Diagnostic Strips",
+          "description": "Glucometer, pregnancy tests"
+        }
+      ]
+    },
+    {
+      "id": "cat_shampoo",
+      "name": "Shampoo",
+      "productType": "cosmetics",
+      "description": "Hair care shampoos and anti-dandruff treatments",
+      "color": "teal",
+      "subCategories": [
+        {
+          "id": "sub_shm_1",
+          "name": "Anti-Dandruff",
+          "description": "Flake-control formulas"
+        },
+        {
+          "id": "sub_shm_2",
+          "name": "Color Protection",
+          "description": "Color-treated hair care"
+        },
+        {
+          "id": "sub_shm_3",
+          "name": "Volumizing & Hydrating",
+          "description": "Fullness and moisture"
+        },
+        {
+          "id": "sub_shm_4",
+          "name": "Gentle / Baby Shampoo",
+          "description": "Tear-free gentle wash"
+        },
+        {
+          "id": "sub_shm_5",
+          "name": "Clarifying Shampoo",
+          "description": "Deep scalp cleansing"
+        }
+      ]
+    },
+    {
+      "id": "cat_conditioner",
+      "name": "Conditioner",
+      "productType": "cosmetics",
+      "description": "Hair conditioning, masks, and hydration treatments",
+      "color": "pink",
+      "subCategories": [
+        {
+          "id": "sub_cnd_1",
+          "name": "Deep Conditioning",
+          "description": "Intensive moisture"
+        },
+        {
+          "id": "sub_cnd_2",
+          "name": "Leave-In Treatment",
+          "description": "All-day protection"
+        },
+        {
+          "id": "sub_cnd_3",
+          "name": "Moisturizing Hair Mask",
+          "description": "Weekly restorative mask"
+        }
+      ]
+    },
+    {
+      "id": "cat_bodywash",
+      "name": "Body Wash",
+      "productType": "cosmetics",
+      "description": "Shower gels, scrubs, and antibacterial body cleansers",
+      "color": "cyan",
+      "subCategories": [
+        {
+          "id": "sub_bw_1",
+          "name": "Hydrating Shower Gel",
+          "description": "Moisturizing daily wash"
+        },
+        {
+          "id": "sub_bw_2",
+          "name": "Exfoliating Scrub",
+          "description": "Skin renewal exfoliators"
+        },
+        {
+          "id": "sub_bw_3",
+          "name": "Antibacterial Body Wash",
+          "description": "Deep cleansing hygiene"
+        },
+        {
+          "id": "sub_bw_4",
+          "name": "Sensitive Skin Cleanser",
+          "description": "Hypoallergenic body wash"
+        }
+      ]
+    },
+    {
+      "id": "cat_skincare",
+      "name": "Skin Care",
+      "productType": "cosmetics",
+      "description": "Face serums, creams, toners, and anti-aging cosmetics",
+      "color": "fuchsia",
+      "subCategories": [
+        {
+          "id": "sub_sc_1",
+          "name": "Facial Cleansers & Foams",
+          "description": "Daily face wash"
+        },
+        {
+          "id": "sub_sc_2",
+          "name": "Moisturizers & Day Creams",
+          "description": "Hydrating barrier creams"
+        },
+        {
+          "id": "sub_sc_3",
+          "name": "Face Serums & Anti-Aging",
+          "description": "Vitamin C, Retinol, HA"
+        },
+        {
+          "id": "sub_sc_4",
+          "name": "Sunscreen Lotion",
+          "description": "Facial UV protective creams"
+        },
+        {
+          "id": "sub_sc_5",
+          "name": "Acne & Blemish Control",
+          "description": "Salicylic, Niacinamide"
+        },
+        {
+          "id": "sub_sc_6",
+          "name": "Toner & Micellar Water",
+          "description": "Pore refining toners"
+        }
+      ]
+    },
+    {
+      "id": "cat_kidsproduct",
+      "name": "Kids Product",
+      "productType": "cosmetics",
+      "description": "Baby skincare, lotions, powders, and baby shampoos",
+      "color": "amber",
+      "subCategories": [
+        {
+          "id": "sub_kp_1",
+          "name": "Baby Lotion & Oils",
+          "description": "Gentle infant oils"
+        },
+        {
+          "id": "sub_kp_2",
+          "name": "Tear-Free Shampoo",
+          "description": "Mild baby shampoo"
+        },
+        {
+          "id": "sub_kp_3",
+          "name": "Baby Powder & Diaper Rash",
+          "description": "Zinc barrier creams"
+        },
+        {
+          "id": "sub_kp_4",
+          "name": "Baby Soaps",
+          "description": "Ultra-mild cleansing bars"
+        }
+      ]
+    },
+    {
+      "id": "cat_soap",
+      "name": "Soap",
+      "productType": "cosmetics",
+      "description": "Beauty bar soaps, herbal soaps, and liquid hand soaps",
+      "color": "emerald",
+      "subCategories": [
+        {
+          "id": "sub_sp_1",
+          "name": "Beauty Bar Soap",
+          "description": "Moisturizing beauty bars"
+        },
+        {
+          "id": "sub_sp_2",
+          "name": "Herbal Soap",
+          "description": "Botanical natural bars"
+        },
+        {
+          "id": "sub_sp_3",
+          "name": "Medicated Soap",
+          "description": "Sulfur and anti-blemish"
+        },
+        {
+          "id": "sub_sp_4",
+          "name": "Liquid Hand Soap",
+          "description": "Sink liquid washes"
+        }
+      ]
+    },
+    {
+      "id": "cat_hairtreatment",
+      "name": "Hair Treatment",
+      "productType": "cosmetics",
+      "description": "Keratin therapy, scalp serums, and hair oils",
+      "color": "violet",
+      "subCategories": [
+        {
+          "id": "sub_ht_1",
+          "name": "Hair Oils & Serums",
+          "description": "Argan, castor oils"
+        },
+        {
+          "id": "sub_ht_2",
+          "name": "Scalp Care",
+          "description": "Follicle stimulants"
+        },
+        {
+          "id": "sub_ht_3",
+          "name": "Keratin & Smoothing",
+          "description": "Anti-frizz treatments"
+        },
+        {
+          "id": "sub_ht_4",
+          "name": "Hair Mask / Butter",
+          "description": "Shea butter hair treatments"
+        }
+      ]
+    },
+    {
+      "id": "cat_parfum",
+      "name": "Parfum",
+      "productType": "cosmetics",
+      "description": "Fine fragrances, eau de parfum, and body mists",
+      "color": "purple",
+      "subCategories": [
+        {
+          "id": "sub_prf_1",
+          "name": "Eau de Parfum (EDP)",
+          "description": "Concentrated luxury fragrance"
+        },
+        {
+          "id": "sub_prf_2",
+          "name": "Eau de Toilette (EDT)",
+          "description": "Fresh daily fragrance"
+        },
+        {
+          "id": "sub_prf_3",
+          "name": "Body Mist / Spray",
+          "description": "Light refreshing mists"
+        },
+        {
+          "id": "sub_prf_4",
+          "name": "Roll-on Perfume",
+          "description": "Pocket perfume oils"
+        }
+      ]
+    },
+    {
+      "id": "cat_deodorant",
+      "name": "Deodorant",
+      "productType": "cosmetics",
+      "description": "24-hour body sprays and antiperspirants",
+      "color": "blue",
+      "subCategories": [
+        {
+          "id": "sub_deo_1",
+          "name": "Antiperspirant Spray",
+          "description": "Sweat protection"
+        },
+        {
+          "id": "sub_deo_2",
+          "name": "Body Spray",
+          "description": "All-over fragrance"
+        },
+        {
+          "id": "sub_deo_3",
+          "name": "Natural Deodorant",
+          "description": "Aluminum-free formula"
+        }
+      ]
+    },
+    {
+      "id": "cat_stickroll",
+      "name": "Stick and Roll Body Deodorants",
+      "productType": "cosmetics",
+      "description": "Roll-on and stick deodorants",
+      "color": "indigo",
+      "subCategories": [
+        {
+          "id": "sub_sr_1",
+          "name": "Roll-On Deodorant",
+          "description": "Liquid ball applicator"
+        },
+        {
+          "id": "sub_sr_2",
+          "name": "Stick Deodorant",
+          "description": "Solid glide stick"
+        },
+        {
+          "id": "sub_sr_3",
+          "name": "Whitening Roll-On",
+          "description": "Underarm tone brightening"
+        }
+      ]
+    },
+    {
+      "id": "cat_oralcare",
+      "name": "Oral Care",
+      "productType": "cosmetics",
+      "description": "Toothpaste, dental rinses, and toothbrushes",
+      "color": "sky",
+      "subCategories": [
+        {
+          "id": "sub_oc_1",
+          "name": "Toothpaste",
+          "description": "Fluoride and herbal toothpaste"
+        },
+        {
+          "id": "sub_oc_2",
+          "name": "Mouthwash & Rinses",
+          "description": "Antibacterial mouthwashes"
+        },
+        {
+          "id": "sub_oc_3",
+          "name": "Toothbrushes",
+          "description": "Soft and medium bristles"
+        },
+        {
+          "id": "sub_oc_4",
+          "name": "Teeth Whitening",
+          "description": "Whitening strips & gels"
+        }
+      ]
+    },
+    {
+      "id": "cat_sunscreen",
+      "name": "Sunscreen",
+      "productType": "cosmetics",
+      "description": "SPF 30 and SPF 50+ sun protection lotions and sprays",
+      "color": "orange",
+      "subCategories": [
+        {
+          "id": "sub_sun_1",
+          "name": "SPF 30 Broad Spectrum",
+          "description": "Daily medium protection"
+        },
+        {
+          "id": "sub_sun_2",
+          "name": "SPF 50+ Sun Lotion",
+          "description": "High UV protection"
+        },
+        {
+          "id": "sub_sun_3",
+          "name": "Sunscreen Spray",
+          "description": "Quick mist application"
+        },
+        {
+          "id": "sub_sun_4",
+          "name": "Matte Fluid Sunscreen",
+          "description": "Non-greasy oil-control"
+        }
+      ]
+    },
+    {
+      "id": "cat_cos_vitamins",
+      "name": "Vitamins and Supplement",
+      "productType": "cosmetics",
+      "description": "Beauty gummies, collagen, biotin, and skin supplements",
+      "color": "rose",
+      "subCategories": [
+        {
+          "id": "sub_cvit_1",
+          "name": "Beauty & Collagen",
+          "description": "Collagen peptide boosters"
+        },
+        {
+          "id": "sub_cvit_2",
+          "name": "Skin, Hair & Nails",
+          "description": "Biotin complex"
+        },
+        {
+          "id": "sub_cvit_3",
+          "name": "Herbal Supplements",
+          "description": "Botanical extracts"
+        }
+      ]
+    },
+    {
+      "id": "cat_hairproduct",
+      "name": "Hair Product",
+      "productType": "cosmetics",
+      "description": "Styling gels, curling creams, leave-ins, and hair foods",
+      "color": "emerald",
+      "subCategories": [
+        {
+          "id": "sub_hp_1",
+          "name": "Hair Curling",
+          "description": "Curl defining creams"
+        },
+        {
+          "id": "sub_hp_2",
+          "name": "Leave-in Conditioner",
+          "description": "Moisturizing leave-in"
+        },
+        {
+          "id": "sub_hp_3",
+          "name": "Hair Growth",
+          "description": "Follicle stimulating oils"
+        },
+        {
+          "id": "sub_hp_4",
+          "name": "Hair Oil",
+          "description": "Nourishing botanical oils"
+        },
+        {
+          "id": "sub_hp_5",
+          "name": "Styling Gel & Wax",
+          "description": "Edge control and waxes"
+        },
+        {
+          "id": "sub_hp_6",
+          "name": "Hair Spray / Mousse",
+          "description": "Hold and volume mousses"
+        },
+        {
+          "id": "sub_hp_7",
+          "name": "Hair Food & Relaxer",
+          "description": "Conditioning relaxer kits"
+        }
+      ]
+    }
+  ],
+  "customUnits": [
+    "Piece (PCS)",
+    "Box",
+    "Strip",
+    "Tablet",
+    "Capsule",
+    "Vial",
+    "Ampoule",
+    "Bottle",
+    "Tube",
+    "Sachet",
+    "Blister Pack",
+    "Pfs (Prefilled Syringe)",
+    "Syrup Bottle",
+    "Suspension Bottle",
+    "Suppository",
+    "Patch",
+    "Jar",
+    "Spray / Inhaler",
+    "Canister",
+    "Bag",
+    "Roll",
+    "Unit"
+  ],
+  "itemAddPresets": {
+    "unit": "Piece (PCS)",
+    "category": "Antibiotics",
+    "subCategory": "",
+    "supplierId": "s1",
+    "branchId": "b1",
+    "productType": "medicine",
+    "profitMargin": 30,
+    "useMarginPricing": true,
+    "isPrescriptionRequired": false,
+    "rememberDefaults": true
+  },
+  "itemMasterTemplates": [
+    {
+      "id": "tmpl_m1",
+      "name": "Amoxicillin 500mg",
+      "genericName": "Amoxicillin Trihydrate",
+      "category": "Antibiotics",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 120,
+      "price": 180,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": true,
+      "productType": "medicine",
+      "minStockLevel": 20,
+      "description": "Broad-spectrum penicillin antibiotic used to treat bacterial infections.",
+      "supplierId": "s1",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2026-10-13",
+      "batchNumber": "AMX-2026-03",
+      "barcode": "6281001123456",
+      "sku": "MED-AMX-500",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.254Z"
+    },
+    {
+      "id": "tmpl_m2",
+      "name": "Paracetamol 500mg",
+      "genericName": "Paracetamol (Acetaminophen)",
+      "category": "Analgesics / Antipyretics",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 25,
+      "price": 45,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": false,
+      "productType": "medicine",
+      "minStockLevel": 50,
+      "description": "Common pain reliever and fever reducer.",
+      "supplierId": "s1",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2027-01-31",
+      "batchNumber": "PAR-2026-05",
+      "barcode": "6281001123457",
+      "sku": "MED-PAR-500",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.254Z"
+    },
+    {
+      "id": "tmpl_m3",
+      "name": "Metformin 850mg",
+      "genericName": "Metformin Hydrochloride",
+      "category": "Anti-Diabetic",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 160,
+      "price": 240,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": true,
+      "productType": "medicine",
+      "minStockLevel": 15,
+      "description": "Oral diabetes medicine that helps control blood sugar levels.",
+      "supplierId": "s2",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2027-01-01",
+      "batchNumber": "MET-2026-09",
+      "barcode": "6281001123458",
+      "sku": "MED-MET-850",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.254Z"
+    },
+    {
+      "id": "tmpl_m4",
+      "name": "Atorvastatin 20mg",
+      "genericName": "Atorvastatin Calcium",
+      "category": "Cardiovascular",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 280,
+      "price": 380,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": true,
+      "productType": "medicine",
+      "minStockLevel": 10,
+      "description": "Statins lipid-lowering medication used to prevent cardiovascular disease.",
+      "supplierId": "s2",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2026-10-03",
+      "batchNumber": "ATR-2026-04",
+      "barcode": "6281001123459",
+      "sku": "MED-ATR-20",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.254Z"
+    },
+    {
+      "id": "tmpl_m5",
+      "name": "Omeprazole 20mg",
+      "genericName": "Omeprazole Delayed-Release",
+      "category": "Gastrointestinal",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 55,
+      "price": 90,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": false,
+      "productType": "medicine",
+      "minStockLevel": 25,
+      "description": "Proton pump inhibitor used to treat gastroesophageal reflux disease.",
+      "supplierId": "s3",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2027-05-21",
+      "batchNumber": "OMP-2026-12",
+      "barcode": "6281001123460",
+      "sku": "MED-OMP-20",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.255Z"
+    },
+    {
+      "id": "tmpl_m6",
+      "name": "Ibuprofen 400mg",
+      "genericName": "Ibuprofen",
+      "category": "Analgesics / Antipyretics",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 38,
+      "price": 65,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": false,
+      "productType": "medicine",
+      "minStockLevel": 30,
+      "description": "Nonsteroidal anti-inflammatory drug (NSAID) used for pain and fever.",
+      "supplierId": "s3",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2027-08-09",
+      "batchNumber": "IBU-2026-10",
+      "barcode": "6281001123461",
+      "sku": "MED-IBU-400",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.255Z"
+    },
+    {
+      "id": "tmpl_m7",
+      "name": "Azithromycin 500mg",
+      "genericName": "Azithromycin dihydrate",
+      "category": "Antibiotics",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 300,
+      "price": 420,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": true,
+      "productType": "medicine",
+      "minStockLevel": 15,
+      "description": "Macrolide antibiotic used for bacterial infections.",
+      "supplierId": "s2",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2026-07-20",
+      "batchNumber": "AZM-2026-01",
+      "barcode": "6281001123462",
+      "sku": "MED-AZM-500",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.255Z"
+    },
+    {
+      "id": "tmpl_m8",
+      "name": "Loratadine 10mg",
+      "genericName": "Loratadine",
+      "category": "Antihistamines",
+      "subCategory": "",
+      "unit": "Box",
+      "buyingPrice": 48,
+      "price": 80,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": false,
+      "productType": "medicine",
+      "minStockLevel": 20,
+      "description": "Non-drowsy 24-hour allergy relief tablets.",
+      "supplierId": "s1",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "",
+      "batchNumber": "",
+      "barcode": "6281001123463",
+      "sku": "MED-LOR-10",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.255Z"
+    },
+    {
+      "id": "tmpl_m9",
+      "name": "Nivea Soft Cream 100ml",
+      "genericName": "Moisturizing Cream",
+      "category": "cosmetics",
+      "subCategory": "",
+      "unit": "Piece (PCS)",
+      "buyingPrice": 220,
+      "price": 320,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": false,
+      "productType": "cosmetics",
+      "minStockLevel": 10,
+      "description": "Highly effective, intensive moisturizing cream for everyday use.",
+      "supplierId": "s1",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2028-12-31",
+      "batchNumber": "NIV-2026-05",
+      "barcode": "4005900002123",
+      "sku": "COS-NIV-100",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.255Z"
+    },
+    {
+      "id": "tmpl_m10",
+      "name": "Neutrogena Sunscreen SPF50",
+      "genericName": "Sunscreen Lotion",
+      "category": "cosmetics",
+      "subCategory": "",
+      "unit": "Piece (PCS)",
+      "buyingPrice": 600,
+      "price": 850,
+      "profitMargin": 30,
+      "useMarginPricing": true,
+      "isPrescriptionRequired": false,
+      "productType": "cosmetics",
+      "minStockLevel": 5,
+      "description": "Broad spectrum UVA/UVB protection sunscreen lotion.",
+      "supplierId": "s1",
+      "purchaseInvoiceNumber": "",
+      "expiryDate": "2028-06-30",
+      "batchNumber": "NEU-2026-11",
+      "barcode": "0705011110022",
+      "sku": "COS-NEU-SPF",
+      "imageUrl": "",
+      "lastUpdated": "2026-08-16T08:18:25.255Z"
+    }
+  ],
+  "lastUpdated": 1786871766892
+}
