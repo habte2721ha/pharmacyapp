@@ -7,6 +7,7 @@ import {
   Save, Download, UserPlus, FileSpreadsheet, ChevronDown, Check, ShoppingBag
 } from 'lucide-react';
 import { Medicine, StockItem, Customer, Sale, Supplier, Branch } from '../types.ts';
+import { generateReceiptPdf } from '../utils/receiptPdfGenerator';
 
 interface PosTerminalProps {
   currentUser: any;
@@ -76,6 +77,7 @@ export default function PosTerminal({
   const [leftWidth, setLeftWidth] = useState<number>(50); // percentage for left catalog pane (25% to 75%)
   const [isDragging, setIsDragging] = useState(false);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
+  const [mobilePosTab, setMobilePosTab] = useState<'catalog' | 'cart'>('catalog');
 
   useEffect(() => {
     const checkSize = () => {
@@ -1451,15 +1453,48 @@ export default function PosTerminal({
         </div>
       )}
 
+      {/* Mobile Segmented View Switcher */}
+      <div className="lg:hidden flex items-center bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl mb-3 shadow-inner gap-1">
+        <button
+          type="button"
+          onClick={() => setMobilePosTab('catalog')}
+          className={`flex-1 py-2 px-3 rounded-lg text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer min-h-[40px] ${
+            mobilePosTab === 'catalog'
+              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <span>📦 Products ({filteredProducts.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePosTab('cart')}
+          className={`flex-1 py-2 px-3 rounded-lg text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer min-h-[40px] ${
+            mobilePosTab === 'cart'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <span>🛒 Cart ({cart.length})</span>
+          {cart.length > 0 && (
+            <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-black ${mobilePosTab === 'cart' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'}`}>
+              {cartSubtotal.toFixed(0)} ETB
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Two Windows Side by Side Draggable Layout */}
       <div 
         ref={containerRef}
-        className="flex flex-col lg:flex-row gap-6 lg:gap-0 items-stretch h-full relative"
+        className="flex flex-col lg:flex-row gap-4 lg:gap-0 items-stretch h-full relative"
       >
         
         {/* First Window: Product Search & Catalog List */}
         <div 
-          className="bg-white rounded-xl shadow-sm border border-gray-150 p-5 space-y-4 flex flex-col min-h-[750px] w-full lg:w-auto shrink-0 transition-all duration-75 text-left"
+          className={`bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-gray-150 dark:border-slate-800 p-3.5 sm:p-5 space-y-4 flex flex-col min-h-0 lg:min-h-[750px] w-full lg:w-auto shrink-0 transition-all duration-75 text-left ${
+            mobilePosTab === 'cart' ? 'hidden lg:flex' : 'flex'
+          }`}
           style={isLargeScreen ? { width: `${leftWidth}%` } : undefined}
         >
           
@@ -1743,7 +1778,7 @@ export default function PosTerminal({
                           e.stopPropagation();
                           addToCart(m);
                         }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold py-1.5 px-3 rounded-lg shadow-xs cursor-pointer transition-colors"
+                        className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] font-extrabold py-2 px-3 rounded-lg shadow-xs cursor-pointer transition-all min-h-[36px]"
                       >
                         Add +
                       </button>
@@ -1753,6 +1788,23 @@ export default function PosTerminal({
               })
             )}
           </div>
+
+          {/* Sticky mobile quick-checkout bar */}
+          {cart.length > 0 && (
+            <div className="lg:hidden sticky bottom-0 -mx-3.5 -mb-3.5 p-3 bg-emerald-700 text-white rounded-b-xl flex items-center justify-between shadow-lg z-20 animate-fade-in border-t border-emerald-600">
+              <div className="text-xs">
+                <span className="font-semibold text-emerald-100">{cart.length} item{cart.length > 1 ? 's' : ''} added</span>
+                <span className="block text-white font-black text-sm leading-tight">{cartSubtotal.toFixed(2)} ETB</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobilePosTab('cart')}
+                className="px-4 py-2 bg-white text-emerald-800 rounded-lg text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer min-h-[40px]"
+              >
+                <span>Checkout Cart →</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Draggable Divider Handle */}
@@ -1770,9 +1822,24 @@ export default function PosTerminal({
 
         {/* Second Window: Patient Info, Cart Added Items, Payment/VAT/Hold options */}
         <div 
-          className="bg-white rounded-xl shadow-sm border border-gray-150 p-5 space-y-4 flex flex-col min-h-[750px] w-full lg:w-auto shrink-0 transition-all duration-75 text-left"
+          className={`bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-gray-150 dark:border-slate-800 p-3.5 sm:p-5 space-y-4 flex flex-col min-h-0 lg:min-h-[750px] w-full lg:w-auto shrink-0 transition-all duration-75 text-left ${
+            mobilePosTab === 'catalog' ? 'hidden lg:flex' : 'flex'
+          }`}
           style={isLargeScreen ? { width: `${100 - leftWidth}%` } : undefined}
         >
+          {/* Mobile Back Button to Catalog */}
+          <div className="lg:hidden flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setMobilePosTab('catalog')}
+              className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 py-1.5 px-2.5 bg-emerald-50 dark:bg-emerald-950/50 rounded-lg cursor-pointer hover:bg-emerald-100 min-h-[36px]"
+            >
+              <span>← Back to Products</span>
+            </button>
+            <span className="text-xs font-extrabold text-gray-700 dark:text-slate-300">
+              Active Invoice ({cart.length} items)
+            </span>
+          </div>
           
           {/* Top: Name of Patient with Writing Option & TIN number */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
@@ -2704,14 +2771,32 @@ export default function PosTerminal({
               </div>
             </div>
 
-            {/* Print Action Bottom Controls */}
-            <div className="pt-4 border-t border-gray-100 flex gap-2 justify-end text-xs font-sans font-semibold">
+            {/* Print & Download Action Bottom Controls */}
+            <div className="pt-4 border-t border-gray-100 flex flex-wrap gap-2 justify-end text-xs font-sans font-semibold">
               <button
                 onClick={() => window.print()}
-                className="bg-gray-900 text-white hover:bg-black py-2.5 px-6 rounded-lg shadow flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="bg-gray-900 text-white hover:bg-black py-2.5 px-4 rounded-lg shadow flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Printer className="h-4 w-4" />
                 Print Document
+              </button>
+              <button
+                onClick={async () => {
+                  if (completedSale) {
+                    const branch = branches?.find(b => b.id === completedSale.branchId);
+                    await generateReceiptPdf(completedSale, {
+                      institution,
+                      branch,
+                      format: receiptFormat === 'thermal' ? 'thermal' : 'standard',
+                      autoDownload: true
+                    });
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                title="Download genuine PDF receipt"
+              >
+                <Download className="h-4 w-4" />
+                Download PDF ({receiptFormat === 'thermal' ? '80mm Thermal' : 'A4 Invoice'})
               </button>
               <button
                 onClick={() => {
@@ -2719,10 +2804,11 @@ export default function PosTerminal({
                     triggerAutoDownload(completedSale);
                   }
                 }}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-lg flex items-center gap-1 transition-colors"
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 px-3 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                title="Download HTML receipt backup"
               >
-                <Download className="h-4 w-4" />
-                Download A4 Tax Invoice
+                <FileText className="h-4 w-4" />
+                HTML
               </button>
               <button
                 onClick={() => {
@@ -2732,10 +2818,10 @@ export default function PosTerminal({
                   dlAnchor.setAttribute("download", `invoice-${completedSale?.invoiceNumber}.json`);
                   dlAnchor.click();
                 }}
-                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 px-4 rounded-lg flex items-center gap-1 transition-colors"
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 px-3 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <Download className="h-4 w-4" />
-                Download JSON
+                JSON
               </button>
               <button
                 onClick={() => { setShowReceipt(false); setCompletedSale(null); }}

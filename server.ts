@@ -10,7 +10,8 @@ import {
   PurchaseOrder, StockTransfer, Customer, Expense, AuditLog, 
   BackupRecord, UserRole, Branch, SupplierTransaction, PharmacyNote,
   SelectivePopupConfig, TeleconsultationSession, TeleconsultationMessage,
-  ProductCategory, SubCategory
+  ProductCategory, SubCategory, PayrollProfile, PayrollRun, PayrollRecord, SalaryAdvance,
+  StaffAttendance, AttendanceSettings
 } from './src/types.ts';
 
 // Helper to generate unique short IDs
@@ -26,10 +27,27 @@ const getRelativeDateStr = (days: number): string => {
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   // Security Hardening: Disable fingerprint header
   app.disable('x-powered-by');
+
+  // Instant Health Check for Cloud Run / reverse proxy probes
+  app.get('/api/health', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({ status: 'ok', timestamp: Date.now(), service: 'Sonan Pharmacy Backend' });
+  });
+
+  // Request timeout protector (safeguards against 504 gateway hang-ups)
+  app.use((req, res, next) => {
+    req.setTimeout(25000, () => {
+      if (!res.headersSent) {
+        console.warn(`[REQUEST TIMEOUT] Path ${req.method} ${req.url} timed out after 25s.`);
+        res.status(504).json({ error: 'Request processing timed out. Please try again.' });
+      }
+    });
+    next();
+  });
 
   // Gzip Compression Engine for Ultra-Fast Slow Network Performance
   app.use(compression({
@@ -72,10 +90,30 @@ async function startServer() {
 
   // Global API Rate Limiter
   app.use('/api', (req, res, next) => {
-    const ip = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const rawIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const ip = rawIp.split(',')[0].trim();
+    
+    // Whitelist loopback / local container ingress
+    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost') {
+      return next();
+    }
+
+    // Skip rate limiting for lightweight background sync / real-time polling endpoints
+    const path = req.path || '';
+    if (
+      path.startsWith('/teleconsultations') ||
+      path.startsWith('/pharmacy-notes') ||
+      path.startsWith('/all-data') ||
+      path.startsWith('/health') ||
+      path.startsWith('/analytics') ||
+      path.startsWith('/devices')
+    ) {
+      return next();
+    }
+
     const now = Date.now();
     const windowMs = 60000;
-    const maxRequests = 300;
+    const maxRequests = 5000; // Generous capacity for multi-terminal pharmacy operations
 
     const current = rateLimitMap.get(ip) || { count: 0, firstAccess: now };
     if (now - current.firstAccess > windowMs) {
@@ -96,11 +134,17 @@ async function startServer() {
   });
 
   // Dedicated Brute Force Protection for Authentication
-  app.use('/api/login', (req, res, next) => {
-    const ip = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || '127.0.0.1';
+  app.use('/api/auth/login', (req, res, next) => {
+    const rawIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const ip = rawIp.split(',')[0].trim();
+
+    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost') {
+      return next();
+    }
+
     const now = Date.now();
     const windowMs = 60000;
-    const maxAttempts = 15;
+    const maxAttempts = 30;
 
     const current = loginLimitMap.get(ip) || { count: 0, firstAccess: now };
     if (now - current.firstAccess > windowMs) {
@@ -169,6 +213,151 @@ async function startServer() {
       console.log(`[EMAIL DISPATCH] Sent to ${to}. Subject: "${subject}". Status: Delivered.`);
     } catch (err) {
       console.error('Failed to register email log:', err);
+    }
+  };
+
+  // Helper to record staff attendance on login
+  const recordStaffLoginAttendance = (db: any, user: any, deviceId?: string, ipAddress?: string) => {
+    try {
+      const settings: AttendanceSettings = db.attendanceSettings || {
+        enabled: true,
+        standardWorkHoursPerDay: 8,
+        shiftStartTime: '08:30',
+        shiftEndTime: '17:30',
+        lateGraceMinutes: 15,
+        autoClockOutOnLogout: true,
+        allowManualClockIn: true,
+        overtimeThresholdHours: 8
+      };
+
+      if (settings.enabled === false) return null;
+
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const currentTimeFormatted = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      // Find branch name
+      let branchName = 'Main Branch / Head Office';
+      if (user.branchId && user.branchId !== 'all') {
+        const b = (db.branches || []).find((branch: any) => branch.id === user.branchId);
+        if (b) branchName = b.name;
+      } else if (db.branches && db.branches.length > 0) {
+        branchName = db.branches[0].name;
+      }
+
+      // Check linked employee profile
+      const profile = (db.payrollProfiles || []).find((p: any) => 
+        (p.userId && p.userId === user.id) || 
+        (p.employeeName && user.name && p.employeeName.toLowerCase() === user.name.toLowerCase()) ||
+        (p.email && user.email && p.email.toLowerCase() === user.email.toLowerCase())
+      );
+
+      // Determine shift type based on hour
+      const hour = now.getHours();
+      let shiftType: 'Morning' | 'Afternoon' | 'Night' | 'Full Day' | 'General' = 'Morning';
+      if (hour >= 6 && hour < 13) shiftType = 'Morning';
+      else if (hour >= 13 && hour < 18) shiftType = 'Afternoon';
+      else if (hour >= 18 || hour < 6) shiftType = 'Night';
+
+      // Determine punctuality
+      let isLate = false;
+      if (settings.shiftStartTime) {
+        const [startHour, startMin] = settings.shiftStartTime.split(':').map(Number);
+        if (!isNaN(startHour) && !isNaN(startMin)) {
+          const scheduledTimeMs = new Date(now).setHours(startHour, startMin + (settings.lateGraceMinutes || 15), 0, 0);
+          if (now.getTime() > scheduledTimeMs && hour < 14) {
+            isLate = true;
+          }
+        }
+      }
+
+      // Check if user already has an active unclosed session today
+      const existingOpenRecord = db.staffAttendance.find((rec: any) => 
+        rec.userId === user.id && 
+        rec.date === todayStr && 
+        (!rec.logoutTime || rec.logoutTime === '')
+      );
+
+      if (existingOpenRecord) {
+        existingOpenRecord.updatedAt = now.toISOString();
+        if (deviceId && !existingOpenRecord.device?.includes(deviceId)) {
+          existingOpenRecord.device = `${existingOpenRecord.device || 'Terminal'}, ${deviceId}`;
+        }
+        return existingOpenRecord;
+      }
+
+      const newRecord: StaffAttendance = {
+        id: generateId('att'),
+        userId: user.id,
+        employeeCode: profile?.employeeCode || `EMP-${(user.username || 'USR').toUpperCase()}`,
+        userName: user.name || user.username,
+        userRole: user.role,
+        branchId: user.branchId === 'all' ? (db.branches?.[0]?.id || 'b1') : user.branchId,
+        branchName: branchName,
+        date: todayStr,
+        loginTime: currentTimeFormatted,
+        logoutTime: '',
+        loginTimestamp: now.getTime(),
+        status: isLate ? 'late' : 'present',
+        shiftType: shiftType,
+        method: 'auto_login',
+        device: deviceId || 'POS Terminal / Browser',
+        ipAddress: ipAddress || '127.0.0.1',
+        notes: `Auto-marked on login via ${deviceId || 'system terminal'}. ${isLate ? 'Late check-in recorded.' : 'On-time arrival.'}`,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      };
+
+      db.staffAttendance.unshift(newRecord);
+      return newRecord;
+    } catch (err) {
+      console.error('Error recording staff login attendance:', err);
+      return null;
+    }
+  };
+
+  // Helper to record staff attendance on logout
+  const recordStaffLogoutAttendance = (db: any, userId: string, notes?: string) => {
+    try {
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      const now = new Date();
+      const currentTimeFormatted = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      // Find the latest open unclosed attendance record for this user
+      const openRecord = db.staffAttendance.find((rec: any) => 
+        rec.userId === userId && 
+        (!rec.logoutTime || rec.logoutTime === '')
+      );
+
+      if (openRecord) {
+        openRecord.logoutTime = currentTimeFormatted;
+        openRecord.logoutTimestamp = now.getTime();
+        const durationMin = Math.max(1, Math.round((now.getTime() - (openRecord.loginTimestamp || now.getTime())) / (1000 * 60)));
+        openRecord.durationMinutes = durationMin;
+
+        const hours = (durationMin / 60).toFixed(1);
+        const settings: AttendanceSettings = db.attendanceSettings || {};
+        const standardHours = settings.standardWorkHoursPerDay || 8;
+
+        if (durationMin >= (standardHours + 1) * 60) {
+          openRecord.status = 'overtime';
+        } else if (durationMin < (standardHours * 0.5) * 60 && openRecord.status !== 'late') {
+          openRecord.status = 'half_day';
+        } else if (openRecord.status !== 'late') {
+          openRecord.status = 'completed';
+        }
+
+        openRecord.notes = (openRecord.notes ? openRecord.notes + ' ' : '') + (notes || `Clocked out on logout. Shift duration: ${hours} hrs (${durationMin} mins).`);
+        openRecord.updatedAt = now.toISOString();
+        return openRecord;
+      }
+      return null;
+    } catch (err) {
+      console.error('Error recording staff logout attendance:', err);
+      return null;
     }
   };
 
@@ -454,7 +643,21 @@ async function startServer() {
       institution: db.institution || null,
       externalPharmacies: db.externalPharmacies || [],
       stockMovements: db.stockMovements || [],
-      teleconsultations: db.teleconsultations || []
+      teleconsultations: db.teleconsultations || [],
+      payrollProfiles: db.payrollProfiles || [],
+      payrollRuns: db.payrollRuns || [],
+      salaryAdvances: db.salaryAdvances || [],
+      staffAttendance: db.staffAttendance || [],
+      attendanceSettings: db.attendanceSettings || {
+        enabled: true,
+        standardWorkHoursPerDay: 8,
+        shiftStartTime: '08:30',
+        shiftEndTime: '17:30',
+        lateGraceMinutes: 15,
+        autoClockOutOnLogout: true,
+        allowManualClockIn: true,
+        overtimeThresholdHours: 8
+      }
     };
   };
 
@@ -583,6 +786,10 @@ async function startServer() {
       db.auditLogs = db.auditLogs.slice(0, 500);
     }
 
+    // Auto-record staff attendance upon login
+    const reqIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    recordStaffLoginAttendance(db, user, targetDevice, reqIp);
+
     // Single unified asynchronous save
     saveDb(db);
  
@@ -633,6 +840,11 @@ async function startServer() {
     
     // Clear OTP
     delete user.pendingDeviceOtp;
+
+    // Auto-record staff attendance upon login
+    const reqIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    recordStaffLoginAttendance(db, user, deviceId, reqIp);
+
     saveDb(db);
 
     let branchName = 'All Branches';
@@ -666,6 +878,34 @@ async function startServer() {
       },
       initialData: buildAllDataPayload(db, user.role)
     });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    try {
+      const { userId, notes } = req.body;
+      const db = loadDb();
+      let attendanceRecord = null;
+      if (userId) {
+        attendanceRecord = recordStaffLogoutAttendance(db, userId, notes);
+        const user = db.users.find(u => u.id === userId);
+        if (user) {
+          logActivity(
+            user.id,
+            user.username,
+            user.role,
+            'User Logout',
+            user.branchId,
+            'All Branches',
+            `User ${user.name} signed out. Shift attendance clocked out successfully.`
+          );
+        }
+      }
+      saveDb(db);
+      res.json({ success: true, attendance: attendanceRecord });
+    } catch (err) {
+      console.error('Logout error:', err);
+      res.json({ success: true });
+    }
   });
 
   app.get('/api/auth/pending-otp', (req, res) => {
@@ -1638,7 +1878,7 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
           parts: [{ text: message.trim() }]
         });
 
-        const response = await ai.models.generateContent({
+        const generatePromise = ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents,
           config: {
@@ -1646,6 +1886,13 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
             temperature: 0.2
           }
         });
+
+        // Timeout safety (12s) to prevent 504 gateway timeout
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('AI generation timed out after 12s')), 12000)
+        );
+
+        const response = await Promise.race([generatePromise, timeoutPromise]);
 
         const reply = response.text || "";
         if (reply.trim().length > 0) {
@@ -6655,14 +6902,21 @@ Please generate a deep financial report containing:
 - Supplier & Supply Chain Procurement Analysis (specifically outlining what we buy from each supplier and suggestions for negotiation)
 - Strategic AI Action Items to optimize margins and reduce overhead expenses`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+      const generatePromise = ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           systemInstruction,
           temperature: 0.3
         }
       });
+
+      // 15s Timeout safety
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('AI analysis timed out after 15s')), 15000)
+      );
+
+      const response = await Promise.race([generatePromise, timeoutPromise]);
 
       res.json({
         analysis: response.text || "AI completed analysis but returned no text."
@@ -6671,6 +6925,776 @@ Please generate a deep financial report containing:
     } catch (err: any) {
       console.error("AI Analysis Error:", err);
       res.status(500).json({ error: "Failed to generate AI analysis: " + err.message });
+    }
+  });
+
+  // ==================== PAYROLL MANAGEMENT ====================
+
+  // 1. Employee Salary Profiles
+  app.get('/api/payroll/profiles', (req, res) => {
+    const db = loadDb();
+    res.json(db.payrollProfiles || []);
+  });
+
+  app.post('/api/payroll/profiles', (req, res) => {
+    const { profile, operatorId } = req.body;
+    if (!profile || !profile.employeeName) {
+      return res.status(400).json({ error: 'Employee name and salary profile details are required.' });
+    }
+    const db = loadDb();
+    if (!db.payrollProfiles) db.payrollProfiles = [];
+
+    const newProfile: PayrollProfile = {
+      ...profile,
+      id: profile.id || generateId('pay_prof'),
+      baseSalary: Number(profile.baseSalary) || 0,
+      employeeCode: profile.employeeCode || `EMP-${String(db.payrollProfiles.length + 1).padStart(3, '0')}`,
+      allowances: {
+        housing: Number(profile.allowances?.housing) || 0,
+        transport: Number(profile.allowances?.transport) || 0,
+        medical: Number(profile.allowances?.medical) || 0,
+        position: Number(profile.allowances?.position) || 0,
+        other: Number(profile.allowances?.other) || 0,
+      },
+      deductions: {
+        pensionEmployeePercent: profile.deductions?.pensionEmployeePercent !== undefined ? Number(profile.deductions.pensionEmployeePercent) : 7,
+        pensionEmployerPercent: profile.deductions?.pensionEmployerPercent !== undefined ? Number(profile.deductions.pensionEmployerPercent) : 11,
+        healthInsurance: Number(profile.deductions?.healthInsurance) || 0,
+        unionFee: Number(profile.deductions?.unionFee) || 0,
+        otherDeductions: Number(profile.deductions?.otherDeductions) || 0,
+      },
+      status: profile.status || 'Active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    db.payrollProfiles.push(newProfile);
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Create Payroll Profile',
+      newProfile.branchId || 'all',
+      'All Branches',
+      `Created salary profile for ${newProfile.employeeName} (${newProfile.employeeCode}) - Base: ${newProfile.baseSalary} ETB`
+    );
+
+    res.status(201).json(newProfile);
+  });
+
+  app.put('/api/payroll/profiles/:id', (req, res) => {
+    const { id } = req.params;
+    const { profile, operatorId } = req.body;
+    const db = loadDb();
+    if (!db.payrollProfiles) db.payrollProfiles = [];
+
+    const index = db.payrollProfiles.findIndex(p => p.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Payroll profile not found.' });
+    }
+
+    db.payrollProfiles[index] = {
+      ...db.payrollProfiles[index],
+      ...profile,
+      id,
+      baseSalary: Number(profile.baseSalary !== undefined ? profile.baseSalary : db.payrollProfiles[index].baseSalary),
+      allowances: {
+        housing: Number(profile.allowances?.housing ?? db.payrollProfiles[index].allowances?.housing ?? 0),
+        transport: Number(profile.allowances?.transport ?? db.payrollProfiles[index].allowances?.transport ?? 0),
+        medical: Number(profile.allowances?.medical ?? db.payrollProfiles[index].allowances?.medical ?? 0),
+        position: Number(profile.allowances?.position ?? db.payrollProfiles[index].allowances?.position ?? 0),
+        other: Number(profile.allowances?.other ?? db.payrollProfiles[index].allowances?.other ?? 0),
+      },
+      deductions: {
+        pensionEmployeePercent: Number(profile.deductions?.pensionEmployeePercent ?? db.payrollProfiles[index].deductions?.pensionEmployeePercent ?? 7),
+        pensionEmployerPercent: Number(profile.deductions?.pensionEmployerPercent ?? db.payrollProfiles[index].deductions?.pensionEmployerPercent ?? 11),
+        healthInsurance: Number(profile.deductions?.healthInsurance ?? db.payrollProfiles[index].deductions?.healthInsurance ?? 0),
+        unionFee: Number(profile.deductions?.unionFee ?? db.payrollProfiles[index].deductions?.unionFee ?? 0),
+        otherDeductions: Number(profile.deductions?.otherDeductions ?? db.payrollProfiles[index].deductions?.otherDeductions ?? 0),
+      },
+      updatedAt: new Date().toISOString()
+    };
+
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Update Payroll Profile',
+      db.payrollProfiles[index].branchId || 'all',
+      'All Branches',
+      `Updated salary profile for ${db.payrollProfiles[index].employeeName} (${db.payrollProfiles[index].employeeCode})`
+    );
+
+    res.json(db.payrollProfiles[index]);
+  });
+
+  app.delete('/api/payroll/profiles/:id', (req, res) => {
+    const { id } = req.params;
+    const { operatorId } = req.body || {};
+    const db = loadDb();
+    if (!db.payrollProfiles) db.payrollProfiles = [];
+
+    const p = db.payrollProfiles.find(x => x.id === id);
+    if (!p) {
+      return res.status(404).json({ error: 'Payroll profile not found.' });
+    }
+
+    db.payrollProfiles = db.payrollProfiles.filter(x => x.id !== id);
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Delete Payroll Profile',
+      p.branchId || 'all',
+      'All Branches',
+      `Removed salary profile for ${p.employeeName} (${p.employeeCode})`
+    );
+
+    res.json({ success: true, deletedId: id });
+  });
+
+  // 2. Payroll Runs
+  app.get('/api/payroll/runs', (req, res) => {
+    const db = loadDb();
+    res.json(db.payrollRuns || []);
+  });
+
+  app.post('/api/payroll/runs', (req, res) => {
+    const { run, operatorId } = req.body;
+    if (!run || !run.periodLabel || !Array.isArray(run.records)) {
+      return res.status(400).json({ error: 'Valid payroll period and records array are required.' });
+    }
+    const db = loadDb();
+    if (!db.payrollRuns) db.payrollRuns = [];
+
+    const b = run.branchId && run.branchId !== 'all' ? db.branches.find(x => x.id === run.branchId) : null;
+
+    const newRun: PayrollRun = {
+      id: run.id || generateId('pay_run'),
+      payrollNumber: run.payrollNumber || `PAY-${run.periodYear || new Date().getFullYear()}-${String(run.periodMonth || new Date().getMonth() + 1).padStart(2, '0')}-${String(db.payrollRuns.length + 1).padStart(2, '0')}`,
+      periodMonth: Number(run.periodMonth) || (new Date().getMonth() + 1),
+      periodYear: Number(run.periodYear) || new Date().getFullYear(),
+      periodLabel: run.periodLabel,
+      branchId: run.branchId || 'all',
+      branchName: b ? b.name : 'All Branches Combined',
+      runDate: run.runDate || new Date().toISOString().split('T')[0],
+      status: run.status || 'Draft',
+      records: run.records || [],
+      totalEmployees: run.records?.length || 0,
+      totalGross: Number(run.totalGross) || 0,
+      totalTax: Number(run.totalTax) || 0,
+      totalPensionEmployee: Number(run.totalPensionEmployee) || 0,
+      totalPensionEmployer: Number(run.totalPensionEmployer) || 0,
+      totalAdvancesDeducted: Number(run.totalAdvancesDeducted) || 0,
+      totalOtherDeductions: Number(run.totalOtherDeductions) || 0,
+      totalNet: Number(run.totalNet) || 0,
+      totalEmployerCost: Number(run.totalEmployerCost) || 0,
+      paymentMethod: run.paymentMethod || 'Bank CBE Batch',
+      paymentReference: run.paymentReference || '',
+      syncedToExpenses: !!run.syncedToExpenses,
+      expenseId: run.expenseId,
+      createdBy: run.createdBy || 'Finance Officer',
+      notes: run.notes || '',
+      createdAt: new Date().toISOString()
+    };
+
+    db.payrollRuns.unshift(newRun);
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Generate Payroll Run',
+      newRun.branchId,
+      newRun.branchName || 'All Branches',
+      `Generated Payroll Cycle [${newRun.periodLabel}]: ${newRun.totalEmployees} staff | Total Net: ${newRun.totalNet.toLocaleString()} ETB (Status: ${newRun.status})`
+    );
+
+    res.status(201).json(newRun);
+  });
+
+  app.put('/api/payroll/runs/:id', (req, res) => {
+    const { id } = req.params;
+    const { run, operatorId } = req.body;
+    const db = loadDb();
+    if (!db.payrollRuns) db.payrollRuns = [];
+
+    const index = db.payrollRuns.findIndex(r => r.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Payroll run not found.' });
+    }
+
+    db.payrollRuns[index] = {
+      ...db.payrollRuns[index],
+      ...run,
+      id
+    };
+
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Update Payroll Run',
+      db.payrollRuns[index].branchId,
+      db.payrollRuns[index].branchName || 'All Branches',
+      `Updated Payroll Cycle [${db.payrollRuns[index].periodLabel}] (Status: ${db.payrollRuns[index].status})`
+    );
+
+    res.json(db.payrollRuns[index]);
+  });
+
+  // Disburse Payroll Run & Link to Financial Expense Ledger
+  app.post('/api/payroll/runs/:id/disburse', (req, res) => {
+    const { id } = req.params;
+    const { paymentMethod, paymentReference, syncToExpenses = true, operatorId, operatorName } = req.body;
+    const db = loadDb();
+    if (!db.payrollRuns) db.payrollRuns = [];
+    if (!db.expenses) db.expenses = [];
+    if (!db.salaryAdvances) db.salaryAdvances = [];
+
+    const run = db.payrollRuns.find(r => r.id === id);
+    if (!run) {
+      return res.status(404).json({ error: 'Payroll run not found.' });
+    }
+
+    run.status = 'Paid';
+    run.paidAt = new Date().toISOString();
+    run.paymentMethod = paymentMethod || run.paymentMethod || 'Bank CBE Batch';
+    run.paymentReference = paymentReference || run.paymentReference || `DISB-${Date.now()}`;
+    run.approvedBy = operatorName || 'Chief Financial Officer';
+
+    // Update records payment status
+    if (run.records && Array.isArray(run.records)) {
+      run.records.forEach(rec => {
+        rec.paymentStatus = 'Paid';
+        rec.paymentDate = new Date().toISOString().split('T')[0];
+        rec.paymentReference = run.paymentReference;
+
+        // Auto-deduct from staff salary advances
+        if (rec.salaryAdvanceDeduction > 0) {
+          const adv = db.salaryAdvances?.find(a => a.employeeId === rec.employeeId && a.status === 'Approved');
+          if (adv) {
+            adv.remainingBalance = Math.max(0, adv.remainingBalance - rec.salaryAdvanceDeduction);
+            if (!adv.repayments) adv.repayments = [];
+            adv.repayments.push({
+              date: new Date().toISOString().split('T')[0],
+              amount: rec.salaryAdvanceDeduction,
+              payrollRunId: run.id,
+              notes: `Auto-deducted in Payroll Run ${run.periodLabel}`
+            });
+            if (adv.remainingBalance <= 0) {
+              adv.status = 'Fully Repaid';
+            } else {
+              adv.status = 'Partially Repaid';
+            }
+          }
+        }
+      });
+    }
+
+    // Automatically post to Pharmacy Expense Ledger if requested
+    if (syncToExpenses && !run.expenseId) {
+      const expId = generateId('e');
+      const bObj = db.branches.find(b => b.id === run.branchId);
+      const newExp: Expense = {
+        id: expId,
+        branchId: run.branchId || 'b1',
+        branchName: bObj?.name || 'All Branches',
+        date: new Date().toISOString().split('T')[0],
+        category: 'Salaries',
+        amount: Number(run.totalNet),
+        description: `Staff Payroll Disbursed [${run.periodLabel}] - Ref: ${run.paymentReference} (${run.totalEmployees} employees)`,
+        recordedBy: operatorName || 'Payroll System'
+      };
+      db.expenses.unshift(newExp);
+      run.syncedToExpenses = true;
+      run.expenseId = expId;
+    }
+
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Disburse Payroll',
+      run.branchId,
+      run.branchName || 'All Branches',
+      `Disbursed Payroll [${run.periodLabel}]: ${run.totalNet.toLocaleString()} ETB paid across ${run.totalEmployees} employees via ${run.paymentMethod}. Synced to Expense Ledger.`
+    );
+
+    res.json({ success: true, run });
+  });
+
+  app.delete('/api/payroll/runs/:id', (req, res) => {
+    const { id } = req.params;
+    const { operatorId } = req.body || {};
+    const db = loadDb();
+    if (!db.payrollRuns) db.payrollRuns = [];
+
+    const run = db.payrollRuns.find(r => r.id === id);
+    if (!run) {
+      return res.status(404).json({ error: 'Payroll run not found.' });
+    }
+
+    db.payrollRuns = db.payrollRuns.filter(r => r.id !== id);
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Delete Payroll Run',
+      run.branchId,
+      run.branchName || 'All Branches',
+      `Deleted Payroll Run [${run.periodLabel}] (${run.payrollNumber})`
+    );
+
+    res.json({ success: true, deletedId: id });
+  });
+
+  // 3. Salary Advances & Staff Loans
+  app.get('/api/payroll/advances', (req, res) => {
+    const db = loadDb();
+    res.json(db.salaryAdvances || []);
+  });
+
+  app.post('/api/payroll/advances', (req, res) => {
+    const { advance, operatorId } = req.body;
+    if (!advance || !advance.employeeName || !advance.amount) {
+      return res.status(400).json({ error: 'Employee name and advance amount are required.' });
+    }
+    const db = loadDb();
+    if (!db.salaryAdvances) db.salaryAdvances = [];
+
+    const newAdvance: SalaryAdvance = {
+      id: advance.id || generateId('adv'),
+      employeeId: advance.employeeId,
+      employeeName: advance.employeeName,
+      employeeCode: advance.employeeCode || '',
+      branchId: advance.branchId || 'b1',
+      amount: Number(advance.amount) || 0,
+      remainingBalance: Number(advance.amount) || 0,
+      monthlyDeduction: Number(advance.monthlyDeduction) || Number(advance.amount),
+      reason: advance.reason || 'Staff Salary Advance Request',
+      requestDate: advance.requestDate || new Date().toISOString().split('T')[0],
+      approvedDate: advance.status === 'Approved' ? new Date().toISOString().split('T')[0] : undefined,
+      approvedBy: advance.status === 'Approved' ? (advance.approvedBy || 'Manager') : undefined,
+      status: advance.status || 'Pending',
+      repayments: [],
+      notes: advance.notes || ''
+    };
+
+    db.salaryAdvances.unshift(newAdvance);
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Request Salary Advance',
+      newAdvance.branchId,
+      'Main Branch',
+      `Recorded salary advance request of ${newAdvance.amount} ETB for ${newAdvance.employeeName}`
+    );
+
+    res.status(201).json(newAdvance);
+  });
+
+  app.put('/api/payroll/advances/:id', (req, res) => {
+    const { id } = req.params;
+    const { advance, operatorId } = req.body;
+    const db = loadDb();
+    if (!db.salaryAdvances) db.salaryAdvances = [];
+
+    const index = db.salaryAdvances.findIndex(a => a.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Salary advance not found.' });
+    }
+
+    db.salaryAdvances[index] = {
+      ...db.salaryAdvances[index],
+      ...advance,
+      id
+    };
+
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Update Salary Advance',
+      db.salaryAdvances[index].branchId,
+      'Main Branch',
+      `Updated salary advance for ${db.salaryAdvances[index].employeeName} (Status: ${db.salaryAdvances[index].status}, Balance: ${db.salaryAdvances[index].remainingBalance} ETB)`
+    );
+
+    res.json(db.salaryAdvances[index]);
+  });
+
+  app.delete('/api/payroll/advances/:id', (req, res) => {
+    const { id } = req.params;
+    const { operatorId } = req.body || {};
+    const db = loadDb();
+    if (!db.salaryAdvances) db.salaryAdvances = [];
+
+    const adv = db.salaryAdvances.find(a => a.id === id);
+    if (!adv) {
+      return res.status(404).json({ error: 'Salary advance not found.' });
+    }
+
+    db.salaryAdvances = db.salaryAdvances.filter(a => a.id !== id);
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Delete Salary Advance',
+      adv.branchId,
+      'Main Branch',
+      `Deleted salary advance record for ${adv.employeeName} (${adv.amount} ETB)`
+    );
+
+    res.json({ success: true, deletedId: id });
+  });
+
+  // ==================== STAFF ATTENDANCE ENDPOINTS ====================
+
+  // 1. Get attendance records with query filtering
+  app.get('/api/attendance', (req, res) => {
+    try {
+      const { branchId, userId, date, startDate, endDate, status } = req.query;
+      const db = loadDb();
+      let records: StaffAttendance[] = db.staffAttendance || [];
+
+      if (branchId && branchId !== 'all') {
+        records = records.filter(r => r.branchId === branchId);
+      }
+      if (userId && userId !== 'all') {
+        records = records.filter(r => r.userId === userId);
+      }
+      if (date) {
+        records = records.filter(r => r.date === date);
+      }
+      if (startDate) {
+        records = records.filter(r => r.date >= (startDate as string));
+      }
+      if (endDate) {
+        records = records.filter(r => r.date <= (endDate as string));
+      }
+      if (status && status !== 'all') {
+        records = records.filter(r => r.status === status);
+      }
+
+      res.json(records);
+    } catch (err: any) {
+      console.error('Error fetching attendance:', err);
+      res.status(500).json({ error: 'Failed to fetch attendance records' });
+    }
+  });
+
+  // 2. Manual / Explicit Clock In
+  app.post('/api/attendance/clock-in', (req, res) => {
+    try {
+      const { userId, branchId, shiftType, notes, device, operatorId } = req.body;
+      const db = loadDb();
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      const targetUser = db.users.find(u => u.id === userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: 'Staff member account not found.' });
+      }
+
+      const reqIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+      const record = recordStaffLoginAttendance(db, targetUser, device || 'Manual Punch', reqIp);
+      if (record) {
+        if (shiftType) record.shiftType = shiftType;
+        if (notes) record.notes = notes;
+        record.method = 'manual';
+        if (operatorId && operatorId !== userId) {
+          record.markedBy = operatorId;
+        }
+      }
+
+      saveDb(db);
+
+      const opUser = db.users.find(u => u.id === operatorId) || targetUser;
+      logActivity(
+        opUser.id,
+        opUser.username,
+        opUser.role,
+        'Staff Clock In',
+        targetUser.branchId,
+        'All Branches',
+        `Clocked in staff ${targetUser.name} (${targetUser.role}) for ${record?.shiftType || 'Standard'} shift.`
+      );
+
+      res.status(201).json(record);
+    } catch (err: any) {
+      console.error('Error clocking in:', err);
+      res.status(500).json({ error: 'Failed to clock in staff member' });
+    }
+  });
+
+  // 3. Manual / Explicit Clock Out
+  app.post('/api/attendance/clock-out', (req, res) => {
+    try {
+      const { userId, attendanceId, notes, operatorId } = req.body;
+      const db = loadDb();
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      let record: StaffAttendance | undefined;
+      const now = new Date();
+      const currentTimeFormatted = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      if (attendanceId) {
+        record = db.staffAttendance.find(r => r.id === attendanceId);
+      } else if (userId) {
+        record = db.staffAttendance.find(r => r.userId === userId && (!r.logoutTime || r.logoutTime === ''));
+      }
+
+      if (!record) {
+        return res.status(404).json({ error: 'Active attendance record not found to clock out.' });
+      }
+
+      record.logoutTime = currentTimeFormatted;
+      record.logoutTimestamp = now.getTime();
+      const durationMin = Math.max(1, Math.round((now.getTime() - (record.loginTimestamp || now.getTime())) / (1000 * 60)));
+      record.durationMinutes = durationMin;
+      const hours = (durationMin / 60).toFixed(1);
+
+      const settings = (db.attendanceSettings || {}) as Partial<AttendanceSettings>;
+      const standardHours = settings.standardWorkHoursPerDay || 8;
+
+      if (durationMin >= (standardHours + 1) * 60) {
+        record.status = 'overtime';
+      } else if (durationMin < (standardHours * 0.5) * 60 && record.status !== 'late') {
+        record.status = 'half_day';
+      } else if (record.status !== 'late') {
+        record.status = 'completed';
+      }
+
+      if (notes) {
+        record.notes = (record.notes ? record.notes + ' ' : '') + notes;
+      }
+      record.updatedAt = now.toISOString();
+
+      saveDb(db);
+
+      const opUser = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+      logActivity(
+        opUser.id,
+        opUser.username,
+        opUser.role,
+        'Staff Clock Out',
+        record.branchId,
+        record.branchName || 'Main Branch',
+        `Clocked out staff ${record.userName} (${hours} hrs worked).`
+      );
+
+      res.json(record);
+    } catch (err: any) {
+      console.error('Error clocking out:', err);
+      res.status(500).json({ error: 'Failed to clock out staff member' });
+    }
+  });
+
+  // 4. Create / Manual Mark Attendance Record (HR/Manager)
+  app.post('/api/attendance', (req, res) => {
+    try {
+      const { attendance, operatorId } = req.body;
+      if (!attendance || !attendance.userId || !attendance.date) {
+        return res.status(400).json({ error: 'User ID and date are required.' });
+      }
+      const db = loadDb();
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      const targetUser = db.users.find(u => u.id === attendance.userId);
+      const branchObj = db.branches.find(b => b.id === (attendance.branchId || targetUser?.branchId));
+      const profile = (db.payrollProfiles || []).find((p: any) => p.userId === attendance.userId || (targetUser && p.employeeName?.toLowerCase() === targetUser.name?.toLowerCase()));
+
+      const newRecord: StaffAttendance = {
+        id: attendance.id || generateId('att'),
+        userId: attendance.userId,
+        employeeCode: attendance.employeeCode || profile?.employeeCode || `EMP-${(targetUser?.username || 'STAFF').toUpperCase()}`,
+        userName: attendance.userName || targetUser?.name || targetUser?.username || 'Staff Member',
+        userRole: attendance.userRole || targetUser?.role || 'Staff',
+        branchId: attendance.branchId || targetUser?.branchId || 'b1',
+        branchName: branchObj?.name || 'Main Branch',
+        date: attendance.date,
+        loginTime: attendance.loginTime || '08:30 AM',
+        logoutTime: attendance.logoutTime || '',
+        loginTimestamp: attendance.loginTimestamp || Date.now(),
+        logoutTimestamp: attendance.logoutTimestamp,
+        durationMinutes: attendance.durationMinutes,
+        status: attendance.status || 'present',
+        shiftType: attendance.shiftType || 'Morning',
+        method: attendance.method || 'manual',
+        device: attendance.device || 'Manual Entry',
+        ipAddress: '127.0.0.1',
+        notes: attendance.notes || 'Manually entered by administrator/manager.',
+        markedBy: operatorId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      db.staffAttendance.unshift(newRecord);
+      saveDb(db);
+
+      const opUser = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+      logActivity(
+        opUser.id,
+        opUser.username,
+        opUser.role,
+        'Create Attendance Record',
+        newRecord.branchId,
+        newRecord.branchName || 'Main Branch',
+        `Created attendance record for ${newRecord.userName} on ${newRecord.date} (Status: ${newRecord.status})`
+      );
+
+      res.status(201).json(newRecord);
+    } catch (err: any) {
+      console.error('Error creating attendance record:', err);
+      res.status(500).json({ error: 'Failed to create attendance record' });
+    }
+  });
+
+  // 5. Update attendance record
+  app.put('/api/attendance/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { attendance, operatorId } = req.body;
+      const db = loadDb();
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      const index = db.staffAttendance.findIndex(r => r.id === id);
+      if (index === -1) {
+        return res.status(404).json({ error: 'Attendance record not found.' });
+      }
+
+      db.staffAttendance[index] = {
+        ...db.staffAttendance[index],
+        ...attendance,
+        id,
+        updatedAt: new Date().toISOString()
+      };
+
+      saveDb(db);
+
+      const opUser = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+      logActivity(
+        opUser.id,
+        opUser.username,
+        opUser.role,
+        'Update Attendance Record',
+        db.staffAttendance[index].branchId,
+        db.staffAttendance[index].branchName || 'Main Branch',
+        `Updated attendance record for ${db.staffAttendance[index].userName} on ${db.staffAttendance[index].date}`
+      );
+
+      res.json(db.staffAttendance[index]);
+    } catch (err: any) {
+      console.error('Error updating attendance record:', err);
+      res.status(500).json({ error: 'Failed to update attendance record' });
+    }
+  });
+
+  // 6. Delete attendance record
+  app.delete('/api/attendance/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { operatorId } = req.body || {};
+      const db = loadDb();
+      if (!db.staffAttendance) db.staffAttendance = [];
+
+      const rec = db.staffAttendance.find(r => r.id === id);
+      if (!rec) {
+        return res.status(404).json({ error: 'Attendance record not found.' });
+      }
+
+      db.staffAttendance = db.staffAttendance.filter(r => r.id !== id);
+      saveDb(db);
+
+      const opUser = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+      logActivity(
+        opUser.id,
+        opUser.username,
+        opUser.role,
+        'Delete Attendance Record',
+        rec.branchId,
+        rec.branchName || 'Main Branch',
+        `Deleted attendance record for ${rec.userName} on ${rec.date}`
+      );
+
+      res.json({ success: true, deletedId: id });
+    } catch (err: any) {
+      console.error('Error deleting attendance record:', err);
+      res.status(500).json({ error: 'Failed to delete attendance record' });
+    }
+  });
+
+  // 7. Get attendance settings
+  app.get('/api/attendance/settings', (req, res) => {
+    const db = loadDb();
+    res.json(db.attendanceSettings || {
+      enabled: true,
+      standardWorkHoursPerDay: 8,
+      shiftStartTime: '08:30',
+      shiftEndTime: '17:30',
+      lateGraceMinutes: 15,
+      autoClockOutOnLogout: true,
+      allowManualClockIn: true,
+      overtimeThresholdHours: 8
+    });
+  });
+
+  // 8. Update attendance settings
+  app.post('/api/attendance/settings', (req, res) => {
+    try {
+      const { settings, operatorId } = req.body;
+      const db = loadDb();
+      db.attendanceSettings = {
+        ...(db.attendanceSettings || {}),
+        ...settings
+      };
+      saveDb(db);
+
+      const opUser = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+      logActivity(
+        opUser.id,
+        opUser.username,
+        opUser.role,
+        'Update Attendance Settings',
+        'all',
+        'All Branches',
+        `Updated staff attendance configuration (Auto-mark on login: ${db.attendanceSettings.enabled ? 'Enabled' : 'Disabled'}, Shift Start: ${db.attendanceSettings.shiftStartTime})`
+      );
+
+      res.json(db.attendanceSettings);
+    } catch (err: any) {
+      console.error('Error updating attendance settings:', err);
+      res.status(500).json({ error: 'Failed to update attendance settings' });
     }
   });
 
@@ -6725,6 +7749,9 @@ Please generate a deep financial report containing:
     if (data.pharmacyNotes) addTable('pharmacyNotes', data.pharmacyNotes);
     if (data.stockMovements) addTable('stockMovements', data.stockMovements);
     if (data.externalPharmacies) addTable('externalPharmacies', data.externalPharmacies);
+    if (data.payrollProfiles) addTable('payrollProfiles', data.payrollProfiles);
+    if (data.payrollRuns) addTable('payrollRuns', data.payrollRuns);
+    if (data.salaryAdvances) addTable('salaryAdvances', data.salaryAdvances);
     if (data.institution) addTable('institution', [data.institution]);
 
     sql += `COMMIT;\n`;
@@ -7644,14 +8671,17 @@ Please generate a deep financial report containing:
     }
   });
 
+  // Global Unhandled Error Handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[UNHANDLED ERROR]:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal Server Error', message: err?.message || 'Unknown server error' });
+    }
+  });
+
   // ==================== DEVELOPMENT VITE MIDDLEWARE ====================
   
-  const isProduction = process.env.NODE_ENV === 'production' || 
-                       (fs.existsSync(path.join(process.cwd(), 'dist')) && 
-                        (process.argv.some(arg => arg.includes('dist') || arg.includes('server.cjs')) || 
-                         (typeof __filename !== 'undefined' && (__filename.endsWith('.cjs') || __filename.includes('dist')))));
-
-  if (!isProduction) {
+  if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },

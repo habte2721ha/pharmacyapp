@@ -5,7 +5,8 @@ import {
   PurchaseOrder, StockTransfer, Customer, Expense, AuditLog, 
   BackupRecord, UserRole, SupplierTransaction, PharmacyNote, StockMovement, ExternalPharmacy,
   SelectivePopupConfig, TeleconsultationSession, ProductCategory, SubCategory,
-  ItemMasterTemplate, ItemAddPresetDefaults, VisitorLogEntry
+  ItemMasterTemplate, ItemAddPresetDefaults, VisitorLogEntry,
+  PayrollProfile, PayrollRun, SalaryAdvance, StaffAttendance, AttendanceSettings
 } from '../types.ts';
 import { parseRawBackup, migrateAndRestoreSchema, logToAuditTrail } from './migrationService.ts';
 
@@ -29,6 +30,11 @@ export interface DbSchema {
   supplierTransactions?: SupplierTransaction[];
   pharmacyNotes?: PharmacyNote[];
   stockMovements?: StockMovement[];
+  payrollProfiles?: PayrollProfile[];
+  payrollRuns?: PayrollRun[];
+  salaryAdvances?: SalaryAdvance[];
+  staffAttendance?: StaffAttendance[];
+  attendanceSettings?: AttendanceSettings;
   institution?: {
     name: string;
     address: string;
@@ -793,6 +799,306 @@ const INITIAL_BACKUP_RECORDS: BackupRecord[] = [
   }
 ];
 
+export const INITIAL_PAYROLL_PROFILES: PayrollProfile[] = [
+  {
+    id: 'pay_prof_1',
+    userId: 'u1',
+    employeeName: 'Admin Super User',
+    employeeCode: 'EMP-001',
+    role: 'Super Administrator',
+    branchId: 'all',
+    employmentType: 'Full-time',
+    hireDate: '2024-01-15',
+    phone: '+251-91-1223344',
+    email: 'admin.super@sonanpharma.com',
+    tinNumber: '1092837465',
+    pensionNumber: 'PO-2024-001',
+    bankName: 'Commercial Bank of Ethiopia (CBE)',
+    accountNumber: '1000192837465',
+    baseSalary: 35000,
+    allowances: { housing: 4000, transport: 2500, medical: 1500, position: 2000, other: 0 },
+    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
+    status: 'Active',
+    createdAt: '2024-01-15T08:00:00.000Z'
+  },
+  {
+    id: 'pay_prof_2',
+    employeeName: 'Dr. Dawit Abebe',
+    employeeCode: 'EMP-002',
+    role: 'Pharmacist',
+    branchId: 'b1',
+    employmentType: 'Full-time',
+    hireDate: '2024-03-01',
+    phone: '+251-91-2334455',
+    email: 'dawit.pharmacist@sonanpharma.com',
+    tinNumber: '1083746592',
+    pensionNumber: 'PO-2024-002',
+    bankName: 'Commercial Bank of Ethiopia (CBE)',
+    accountNumber: '1000283746591',
+    baseSalary: 28000,
+    allowances: { housing: 3000, transport: 2000, medical: 1000, position: 1500, other: 0 },
+    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
+    status: 'Active',
+    createdAt: '2024-03-01T08:00:00.000Z'
+  },
+  {
+    id: 'pay_prof_3',
+    employeeName: 'Selam Tesfaye',
+    employeeCode: 'EMP-003',
+    role: 'Branch Manager',
+    branchId: 'b2',
+    employmentType: 'Full-time',
+    hireDate: '2024-04-10',
+    phone: '+251-91-3445566',
+    email: 'selam.manager@sonanpharma.com',
+    tinNumber: '1074659283',
+    pensionNumber: 'PO-2024-003',
+    bankName: 'Awash Bank',
+    accountNumber: '01420987654300',
+    baseSalary: 25000,
+    allowances: { housing: 2500, transport: 1800, medical: 1000, position: 1200, other: 0 },
+    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
+    status: 'Active',
+    createdAt: '2024-04-10T08:00:00.000Z'
+  },
+  {
+    id: 'pay_prof_4',
+    employeeName: 'Tigist Haile',
+    employeeCode: 'EMP-004',
+    role: 'Cashier',
+    branchId: 'b1',
+    employmentType: 'Full-time',
+    hireDate: '2024-06-01',
+    phone: '+251-91-4556677',
+    email: 'tigist.cashier@sonanpharma.com',
+    tinNumber: '1065928374',
+    pensionNumber: 'PO-2024-004',
+    bankName: 'Commercial Bank of Ethiopia (CBE)',
+    accountNumber: '1000374659281',
+    baseSalary: 14000,
+    allowances: { housing: 1500, transport: 1200, medical: 500, position: 0, other: 0 },
+    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
+    status: 'Active',
+    createdAt: '2024-06-01T08:00:00.000Z'
+  },
+  {
+    id: 'pay_prof_5',
+    employeeName: 'Yohannes Bekele',
+    employeeCode: 'EMP-005',
+    role: 'Store Keeper',
+    branchId: 'b1',
+    employmentType: 'Full-time',
+    hireDate: '2024-05-15',
+    phone: '+251-91-5667788',
+    email: 'yohannes.store@sonanpharma.com',
+    tinNumber: '1059283746',
+    pensionNumber: 'PO-2024-005',
+    bankName: 'Bank of Abyssinia (BOA)',
+    accountNumber: '883920194820',
+    baseSalary: 17000,
+    allowances: { housing: 1800, transport: 1500, medical: 600, position: 0, other: 0 },
+    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
+    status: 'Active',
+    createdAt: '2024-05-15T08:00:00.000Z'
+  },
+  {
+    id: 'pay_prof_6',
+    employeeName: 'Helen Girma',
+    employeeCode: 'EMP-006',
+    role: 'Accountant',
+    branchId: 'b1',
+    employmentType: 'Full-time',
+    hireDate: '2024-02-20',
+    phone: '+251-91-6778899',
+    email: 'helen.finance@sonanpharma.com',
+    tinNumber: '1048392019',
+    pensionNumber: 'PO-2024-006',
+    bankName: 'Dashen Bank',
+    accountNumber: '502938472910',
+    baseSalary: 23000,
+    allowances: { housing: 2200, transport: 1800, medical: 800, position: 1000, other: 0 },
+    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
+    status: 'Active',
+    createdAt: '2024-02-20T08:00:00.000Z'
+  }
+];
+
+export const INITIAL_SALARY_ADVANCES: SalaryAdvance[] = [
+  {
+    id: 'adv_1',
+    employeeId: 'pay_prof_4',
+    employeeName: 'Tigist Haile',
+    employeeCode: 'EMP-004',
+    branchId: 'b1',
+    amount: 3000,
+    remainingBalance: 1500,
+    monthlyDeduction: 1500,
+    reason: 'Emergency appliance repair',
+    requestDate: getRelativeDateStr(-20),
+    approvedDate: getRelativeDateStr(-18),
+    approvedBy: 'Admin',
+    status: 'Approved',
+    repayments: [
+      { date: getRelativeDateStr(-10), amount: 1500, notes: 'Auto-deducted from prior cycle' }
+    ]
+  }
+];
+
+export const INITIAL_ATTENDANCE_SETTINGS: AttendanceSettings = {
+  enabled: true,
+  standardWorkHoursPerDay: 8,
+  shiftStartTime: '08:30',
+  shiftEndTime: '17:30',
+  lateGraceMinutes: 15,
+  autoClockOutOnLogout: true,
+  allowManualClockIn: true,
+  overtimeThresholdHours: 8
+};
+
+export const INITIAL_STAFF_ATTENDANCE: StaffAttendance[] = [
+  {
+    id: 'att_seed_1',
+    userId: 'u_pharm',
+    employeeCode: 'EMP-002',
+    userName: 'Dr. Dawit Abebe',
+    userRole: 'Pharmacist',
+    branchId: 'b1',
+    branchName: 'Sonan Pharmacy Main Branch',
+    date: getRelativeDateStr(0),
+    loginTime: '08:25 AM',
+    logoutTime: '',
+    loginTimestamp: new Date().setHours(8, 25, 0, 0),
+    status: 'present',
+    shiftType: 'Morning',
+    method: 'auto_login',
+    device: 'POS-Terminal-01',
+    ipAddress: '192.168.1.15',
+    notes: 'Clocked in on duty. Morning shift dispensary.'
+  },
+  {
+    id: 'att_seed_2',
+    userId: 'u_cash',
+    employeeCode: 'EMP-004',
+    userName: 'Tigist Haile',
+    userRole: 'Cashier',
+    branchId: 'b1',
+    branchName: 'Sonan Pharmacy Main Branch',
+    date: getRelativeDateStr(0),
+    loginTime: '08:32 AM',
+    logoutTime: '',
+    loginTimestamp: new Date().setHours(8, 32, 0, 0),
+    status: 'present',
+    shiftType: 'Morning',
+    method: 'auto_login',
+    device: 'POS-Cashier-01',
+    ipAddress: '192.168.1.18',
+    notes: 'Shift started on register 1.'
+  },
+  {
+    id: 'att_seed_3',
+    userId: 'u_mgr',
+    employeeCode: 'EMP-003',
+    userName: 'Selam Tesfaye',
+    userRole: 'Branch Manager',
+    branchId: 'b2',
+    branchName: 'Sonan Pharmacy No. 2',
+    date: getRelativeDateStr(0),
+    loginTime: '08:50 AM',
+    logoutTime: '',
+    loginTimestamp: new Date().setHours(8, 50, 0, 0),
+    status: 'late',
+    shiftType: 'Morning',
+    method: 'auto_login',
+    device: 'Manager-Laptop',
+    ipAddress: '192.168.2.10',
+    notes: 'Traffic delay on Ring Road. Checked in 20 mins late.'
+  },
+  {
+    id: 'att_seed_4',
+    userId: 'u_pharm',
+    employeeCode: 'EMP-002',
+    userName: 'Dr. Dawit Abebe',
+    userRole: 'Pharmacist',
+    branchId: 'b1',
+    branchName: 'Sonan Pharmacy Main Branch',
+    date: getRelativeDateStr(-1),
+    loginTime: '08:20 AM',
+    logoutTime: '05:30 PM',
+    loginTimestamp: new Date(Date.now() - 86400000).setHours(8, 20, 0, 0),
+    logoutTimestamp: new Date(Date.now() - 86400000).setHours(17, 30, 0, 0),
+    durationMinutes: 550,
+    status: 'completed',
+    shiftType: 'Full Day',
+    method: 'auto_login',
+    device: 'POS-Terminal-01',
+    ipAddress: '192.168.1.15',
+    notes: 'Full day clinical shift completed with 10 mins overtime.'
+  },
+  {
+    id: 'att_seed_5',
+    userId: 'u_cash',
+    employeeCode: 'EMP-004',
+    userName: 'Tigist Haile',
+    userRole: 'Cashier',
+    branchId: 'b1',
+    branchName: 'Sonan Pharmacy Main Branch',
+    date: getRelativeDateStr(-1),
+    loginTime: '08:30 AM',
+    logoutTime: '05:00 PM',
+    loginTimestamp: new Date(Date.now() - 86400000).setHours(8, 30, 0, 0),
+    logoutTimestamp: new Date(Date.now() - 86400000).setHours(17, 0, 0, 0),
+    durationMinutes: 510,
+    status: 'completed',
+    shiftType: 'Full Day',
+    method: 'auto_login',
+    device: 'POS-Cashier-01',
+    ipAddress: '192.168.1.18',
+    notes: 'Cashier shift signed off.'
+  },
+  {
+    id: 'att_seed_6',
+    userId: 'u_store',
+    employeeCode: 'EMP-005',
+    userName: 'Yohannes Bekele',
+    userRole: 'Store Keeper',
+    branchId: 'b1',
+    branchName: 'Sonan Pharmacy Main Branch',
+    date: getRelativeDateStr(-1),
+    loginTime: '08:15 AM',
+    logoutTime: '05:15 PM',
+    loginTimestamp: new Date(Date.now() - 86400000).setHours(8, 15, 0, 0),
+    logoutTimestamp: new Date(Date.now() - 86400000).setHours(17, 15, 0, 0),
+    durationMinutes: 540,
+    status: 'completed',
+    shiftType: 'Full Day',
+    method: 'auto_login',
+    device: 'Store-Desktop',
+    ipAddress: '192.168.1.22',
+    notes: 'Inventory verification & stock transfer intake completed.'
+  },
+  {
+    id: 'att_seed_7',
+    userId: 'u_fin',
+    employeeCode: 'EMP-006',
+    userName: 'Helen Girma',
+    userRole: 'Accountant',
+    branchId: 'b1',
+    branchName: 'Sonan Pharmacy Main Branch',
+    date: getRelativeDateStr(-2),
+    loginTime: '09:00 AM',
+    logoutTime: '05:30 PM',
+    loginTimestamp: new Date(Date.now() - 172800000).setHours(9, 0, 0, 0),
+    logoutTimestamp: new Date(Date.now() - 172800000).setHours(17, 30, 0, 0),
+    durationMinutes: 510,
+    status: 'completed',
+    shiftType: 'Full Day',
+    method: 'auto_login',
+    device: 'Finance-PC',
+    ipAddress: '192.168.1.30',
+    notes: 'Accounts reconciled & purchase orders verified.'
+  }
+];
+
 export const isSimilarName = (name1: string, name2: string): boolean => {
   if (!name1 || !name2) return false;
   const clean = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -1225,6 +1531,22 @@ export const loadDb = (forceReload = false): DbSchema => {
           }
         });
       });
+    }
+
+    if (!parsed.payrollProfiles || !Array.isArray(parsed.payrollProfiles) || parsed.payrollProfiles.length === 0) {
+      parsed.payrollProfiles = INITIAL_PAYROLL_PROFILES;
+    }
+    if (!parsed.payrollRuns || !Array.isArray(parsed.payrollRuns)) {
+      parsed.payrollRuns = [];
+    }
+    if (!parsed.salaryAdvances || !Array.isArray(parsed.salaryAdvances)) {
+      parsed.salaryAdvances = INITIAL_SALARY_ADVANCES;
+    }
+    if (!parsed.staffAttendance || !Array.isArray(parsed.staffAttendance)) {
+      parsed.staffAttendance = INITIAL_STAFF_ATTENDANCE;
+    }
+    if (!parsed.attendanceSettings) {
+      parsed.attendanceSettings = INITIAL_ATTENDANCE_SETTINGS;
     }
 
     cachedDb = parsed;

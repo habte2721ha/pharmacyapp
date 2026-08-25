@@ -3,9 +3,10 @@ import { useDebounce } from '../hooks/useDebounce';
 import { 
   Search, X, Printer, Download, RefreshCw, FileText, 
   Trash2, Filter, DollarSign, Calendar, User, Eye, ArrowDown, HelpCircle, AlertCircle,
-  CreditCard, Edit2
+  CreditCard, Edit2, FileDown, CheckCircle2, ChevronDown
 } from 'lucide-react';
 import { Sale, Medicine, User as UserType, Branch } from '../types';
+import { generateReceiptPdf } from '../utils/receiptPdfGenerator';
 
 interface SalesHistoryPanelProps {
   currentUser: any;
@@ -84,6 +85,10 @@ export default function SalesHistoryPanel({
   const [voidingSaleId, setVoidingSaleId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
 
+  // PDF receipt downloading state
+  const [downloadingPdfSaleId, setDownloadingPdfSaleId] = useState<string | null>(null);
+  const [downloadingFormat, setDownloadingFormat] = useState<'standard' | 'thermal'>('standard');
+
   // Payment method edit state
   const [editingPaymentSale, setEditingPaymentSale] = useState<Sale | null>(null);
   const [newPaymentMethod, setNewPaymentMethod] = useState<string>('Cash');
@@ -97,16 +102,16 @@ export default function SalesHistoryPanel({
     }
     try {
       const [salesRes, medRes, userRes, branchRes, instRes] = await Promise.all([
-        fetch('/api/sales').then(r => r.ok ? r.json() : []),
-        fetch('/api/medicines').then(r => r.ok ? r.json() : []),
-        fetch('/api/users').then(r => r.ok ? r.json() : []),
-        fetch('/api/branches').then(r => r.ok ? r.json() : []),
+        fetch('/api/sales').then(r => r.ok ? r.json() : null),
+        fetch('/api/medicines').then(r => r.ok ? r.json() : null),
+        fetch('/api/users').then(r => r.ok ? r.json() : null),
+        fetch('/api/branches').then(r => r.ok ? r.json() : null),
         fetch('/api/settings/institution').then(r => r.ok ? r.json() : null)
       ]);
-      setSales(salesRes);
-      setMedicines(medRes);
-      setCashiers(userRes);
-      setBranches(branchRes);
+      if (Array.isArray(salesRes) && salesRes.length > 0) setSales(salesRes);
+      if (Array.isArray(medRes) && medRes.length > 0) setMedicines(medRes);
+      if (Array.isArray(userRes) && userRes.length > 0) setCashiers(userRes);
+      if (Array.isArray(branchRes) && branchRes.length > 0) setBranches(branchRes);
       if (instRes) {
         setInstitution({
           name: instRes.name || 'Sonan Pharmacy',
@@ -369,7 +374,49 @@ export default function SalesHistoryPanel({
     printWindow.document.close();
   };
 
-  // Trigger download of receipt
+  // Trigger download of official PDF receipt (A4 standard or 80mm POS roll)
+  const handleDownloadPdf = async (sale: Sale, format: 'standard' | 'thermal' = 'standard') => {
+    try {
+      setDownloadingPdfSaleId(sale.id);
+      setDownloadingFormat(format);
+      const branch = branches.find(b => b.id === sale.branchId);
+      await generateReceiptPdf(sale, {
+        institution,
+        branch,
+        format,
+        autoDownload: true
+      });
+    } catch (err: any) {
+      console.error('Error generating receipt PDF:', err);
+      alert('Failed to generate PDF receipt: ' + (err?.message || err));
+    } finally {
+      setDownloadingPdfSaleId(null);
+    }
+  };
+
+  // Direct print PDF receipt
+  const handlePrintReceiptDirect = async (sale: Sale, format: 'standard' | 'thermal' = 'standard') => {
+    try {
+      setDownloadingPdfSaleId(sale.id);
+      const branch = branches.find(b => b.id === sale.branchId);
+      const doc = await generateReceiptPdf(sale, {
+        institution,
+        branch,
+        format,
+        autoDownload: false
+      });
+      doc.autoPrint();
+      const pdfBlob = doc.output('bloburl');
+      window.open(pdfBlob, '_blank');
+    } catch (err: any) {
+      console.error('Error printing receipt PDF:', err);
+      alert('Failed to print receipt: ' + (err?.message || err));
+    } finally {
+      setDownloadingPdfSaleId(null);
+    }
+  };
+
+  // Trigger download of receipt HTML
   const downloadReceipt = (sale: Sale) => {
     try {
       const itemsHtml = sale.items.map(item => `
@@ -839,13 +886,29 @@ export default function SalesHistoryPanel({
                     <div className="flex items-center gap-1 font-bold text-amber-900 bg-amber-100/80 px-1.5 py-0.5 rounded text-[10px] uppercase">
                       <span>{lastLog ? `${lastLog.oldMethod} ➔ ${lastLog.newMethod}` : sale.paymentMethod}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSaleForModal(sale)}
-                      className="text-emerald-700 hover:text-emerald-900 font-extrabold text-[10px] cursor-pointer underline"
-                    >
-                      View Receipt
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPdf(sale, 'standard')}
+                        disabled={downloadingPdfSaleId === sale.id}
+                        className="text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded font-bold text-[10px] cursor-pointer inline-flex items-center gap-1 transition-colors"
+                        title="Download Receipt PDF"
+                      >
+                        {downloadingPdfSaleId === sale.id ? (
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        ) : (
+                          <FileDown className="w-2.5 h-2.5" />
+                        )}
+                        <span>PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSaleForModal(sale)}
+                        className="text-gray-700 hover:text-gray-900 font-extrabold text-[10px] cursor-pointer underline"
+                      >
+                        View Receipt
+                      </button>
+                    </div>
                   </div>
                   {lastLog && (
                     <div className="text-[9.5px] text-gray-500 mt-1 italic truncate">
@@ -947,18 +1010,43 @@ export default function SalesHistoryPanel({
                             {sale.status || 'Completed'}
                           </span>
                         </td>
-                        <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                        <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
                           <button
                             onClick={() => setSelectedSaleForModal(sale)}
-                            title="View Invoice Details"
-                            className="bg-gray-100 hover:bg-gray-250 border p-1 rounded inline-flex items-center text-gray-600 transition-colors cursor-pointer"
+                            title="View Invoice & Receipt Details"
+                            className="bg-gray-100 hover:bg-gray-250 border border-gray-200 p-1.5 rounded-lg inline-flex items-center text-gray-700 transition-colors cursor-pointer"
                           >
                             <Eye className="h-3.5 w-3.5" />
                           </button>
                           <button
+                            onClick={() => handleDownloadPdf(sale, 'standard')}
+                            disabled={downloadingPdfSaleId === sale.id}
+                            title="Download Official Tax Receipt PDF (Standard A4)"
+                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1 text-[10.5px] transition-all cursor-pointer disabled:opacity-50 shadow-2xs"
+                          >
+                            {downloadingPdfSaleId === sale.id && downloadingFormat === 'standard' ? (
+                              <RefreshCw className="h-3 w-3 animate-spin text-emerald-700" />
+                            ) : (
+                              <FileDown className="h-3 w-3 text-emerald-700" />
+                            )}
+                            <span>PDF</span>
+                          </button>
+                          <button
+                            onClick={() => handleDownloadPdf(sale, 'thermal')}
+                            disabled={downloadingPdfSaleId === sale.id}
+                            title="Download 80mm POS Thermal Receipt PDF"
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-750 border border-slate-300 p-1.5 rounded-lg inline-flex items-center transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {downloadingPdfSaleId === sale.id && downloadingFormat === 'thermal' ? (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-700" />
+                            ) : (
+                              <Printer className="h-3.5 w-3.5 text-slate-700" />
+                            )}
+                          </button>
+                          <button
                             onClick={() => downloadReceipt(sale)}
-                            title="Download Receipt HTML"
-                            className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-1 rounded inline-flex items-center text-emerald-800 transition-colors cursor-pointer"
+                            title="Download Receipt HTML file"
+                            className="bg-gray-50 hover:bg-gray-150 border border-gray-200 p-1.5 rounded-lg inline-flex items-center text-gray-500 transition-colors cursor-pointer"
                           >
                             <Download className="h-3.5 w-3.5" />
                           </button>
@@ -969,7 +1057,7 @@ export default function SalesHistoryPanel({
                                 setNewPaymentMethod(sale.paymentMethod || 'Cash');
                               }}
                               title="Change Payment Method"
-                              className="bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1 rounded inline-flex items-center text-blue-700 transition-colors cursor-pointer"
+                              className="bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg inline-flex items-center text-blue-700 transition-colors cursor-pointer"
                             >
                               <CreditCard className="h-3.5 w-3.5" />
                             </button>
@@ -981,7 +1069,7 @@ export default function SalesHistoryPanel({
                                 setVoidReason('');
                               }}
                               title="Void Entire Invoice & Restock"
-                              className="bg-red-50 hover:bg-red-100 border border-red-200 p-1 rounded inline-flex items-center text-red-600 transition-colors cursor-pointer"
+                              className="bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg inline-flex items-center text-red-600 transition-colors cursor-pointer"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -1199,13 +1287,67 @@ export default function SalesHistoryPanel({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
-              <button
-                onClick={() => setSelectedSaleForModal(null)}
-                className="bg-gray-150 hover:bg-gray-200 text-gray-700 font-bold px-4 py-2 rounded-lg cursor-pointer"
-              >
-                Close View
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-gray-150">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePrintReceiptDirect(selectedSaleForModal)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold px-3 py-2 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Direct print this receipt"
+                >
+                  <Printer className="h-4 w-4 text-gray-600" />
+                  <span>Print</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadReceipt(selectedSaleForModal)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-3 py-2 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Download HTML Receipt format"
+                >
+                  <Download className="h-4 w-4 text-gray-500" />
+                  <span>HTML</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={downloadingPdfSaleId === selectedSaleForModal.id}
+                  onClick={() => handleDownloadPdf(selectedSaleForModal, 'thermal')}
+                  className="bg-slate-850 hover:bg-slate-950 text-white font-bold px-3.5 py-2 rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  title="Download 80mm POS thermal receipt PDF format"
+                >
+                  {downloadingPdfSaleId === selectedSaleForModal.id && downloadingFormat === 'thermal' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-300" />
+                  ) : (
+                    <Printer className="h-3.5 w-3.5 text-slate-300" />
+                  )}
+                  <span>POS Thermal PDF (80mm)</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={downloadingPdfSaleId === selectedSaleForModal.id}
+                  onClick={() => handleDownloadPdf(selectedSaleForModal, 'standard')}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+                  title="Download official standard A4 commercial tax invoice & receipt PDF"
+                >
+                  {downloadingPdfSaleId === selectedSaleForModal.id && downloadingFormat === 'standard' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileDown className="h-3.5 w-3.5" />
+                  )}
+                  <span>Download Receipt PDF (A4)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSaleForModal(null)}
+                  className="bg-gray-150 hover:bg-gray-200 text-gray-700 font-bold px-3.5 py-2 rounded-lg cursor-pointer text-xs"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

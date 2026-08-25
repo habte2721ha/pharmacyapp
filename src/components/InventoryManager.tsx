@@ -2937,43 +2937,42 @@ export default function InventoryManager({
       )}
 
       {/* Segment Category Switcher */}
-      <div className="flex justify-between items-center bg-gray-100 p-1.5 rounded-xl border border-gray-250">
-        <div className="flex gap-1">
+      <div className="flex items-center bg-gray-100 dark:bg-slate-800 p-1.5 rounded-xl border border-gray-250 dark:border-slate-700 overflow-x-auto max-w-full scrollbar-none">
+        <div className="flex gap-1 shrink-0">
           <button
             onClick={() => setActiveTab('catalog')}
-            className={`py-2 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === 'catalog' ? 'bg-white text-emerald-700 border border-gray-200 shadow-sm font-extrabold' : 'text-gray-600 hover:text-gray-900'
+            className={`py-2 px-3 sm:px-4 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap min-h-[38px] ${
+              activeTab === 'catalog' ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border border-gray-200 dark:border-slate-750 shadow-xs font-extrabold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
             }`}
           >
-            Master Catalog (Products)
+            📦 Products
           </button>
           <button
             onClick={() => setActiveTab('batches')}
-            className={`py-2 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === 'batches' ? 'bg-white text-emerald-700 border border-gray-200 shadow-sm font-extrabold' : 'text-gray-600 hover:text-gray-900'
+            className={`py-2 px-3 sm:px-4 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap min-h-[38px] ${
+              activeTab === 'batches' ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border border-gray-200 dark:border-slate-750 shadow-xs font-extrabold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
             }`}
           >
-            Branch Batches &amp; Expirations
+            ⏳ Batches &amp; Expiry
           </button>
           <button
             onClick={() => setActiveTab('damaged')}
-            className={`py-2 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === 'damaged' ? 'bg-white text-emerald-700 border border-gray-200 shadow-sm font-extrabold' : 'text-gray-600 hover:text-gray-900'
+            className={`py-2 px-3 sm:px-4 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap min-h-[38px] ${
+              activeTab === 'damaged' ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border border-gray-200 dark:border-slate-750 shadow-xs font-extrabold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
             }`}
           >
-            Damaged &amp; Quarantine Logs
+            ⚠️ Quarantine Logs
           </button>
           <button
             onClick={() => setActiveTab('velocity')}
-            className={`py-2 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-              activeTab === 'velocity' ? 'bg-white text-emerald-700 border border-gray-200 shadow-sm font-extrabold' : 'text-gray-600 hover:text-gray-900'
+            className={`py-2 px-3 sm:px-4 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap min-h-[38px] ${
+              activeTab === 'velocity' ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border border-gray-200 dark:border-slate-750 shadow-xs font-extrabold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
             }`}
           >
-            ⚡ Stock Movement &amp; Velocity
+            ⚡ Movement Velocity
           </button>
         </div>
-
-        </div>
+      </div>
       
 
       {/* Filter / Search Bento Box */}

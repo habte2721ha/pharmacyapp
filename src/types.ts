@@ -551,6 +551,184 @@ export interface VisitorStats {
   recentVisitors: VisitorLogEntry[];
 }
 
+export interface PayrollProfile {
+  id: string;
+  userId?: string;
+  employeeName: string;
+  employeeCode: string;
+  role: string;
+  branchId: string;
+  employmentType: 'Full-time' | 'Part-time' | 'Contract' | 'Locum / Per-shift' | 'Intern';
+  hireDate: string;
+  phone?: string;
+  email?: string;
+  tinNumber?: string;
+  pensionNumber?: string;
+  bankName: string;
+  accountNumber: string;
+  baseSalary: number; // Monthly in ETB
+  hourlyRate?: number;
+  allowances: {
+    housing?: number;
+    transport?: number;
+    medical?: number;
+    position?: number;
+    other?: number;
+  };
+  deductions: {
+    pensionEmployeePercent?: number; // default 7%
+    pensionEmployerPercent?: number; // default 11%
+    healthInsurance?: number;
+    unionFee?: number;
+    otherDeductions?: number;
+  };
+  taxExempt?: boolean;
+  status: 'Active' | 'On Leave' | 'Terminated' | 'Suspended';
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PayrollRecord {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeCode: string;
+  role: string;
+  branchId: string;
+  bankName: string;
+  accountNumber: string;
+  tinNumber?: string;
+  pensionNumber?: string;
+  baseSalary: number;
+  daysWorked?: number;
+  overtimeHours?: number;
+  overtimeRate?: number;
+  overtimePay?: number;
+  housingAllowance?: number;
+  transportAllowance?: number;
+  medicalAllowance?: number;
+  positionAllowance?: number;
+  otherAllowances?: number;
+  totalAllowances?: number;
+  allowances?: {
+    housing?: number;
+    transport?: number;
+    medical?: number;
+    position?: number;
+    other?: number;
+  };
+  bonus?: number;
+  bonuses?: number;
+  commission?: number;
+  commissions?: number;
+  grossSalary: number;
+  taxableIncome: number;
+  incomeTax: number;
+  pensionEmployee: number;
+  pensionEmployer: number;
+  salaryAdvanceDeduction: number;
+  otherDeductions: number;
+  totalDeductions: number;
+  netSalary: number;
+  totalEmployerCost?: number;
+  employerTotalCost?: number;
+  paymentStatus: 'Pending' | 'Paid' | 'Hold';
+  paymentDate?: string;
+  paymentReference?: string;
+  notes?: string;
+}
+
+export interface PayrollRun {
+  id: string;
+  payrollNumber: string;
+  periodMonth: number; // 1-12
+  periodYear: number; // e.g. 2026
+  periodLabel: string; // e.g. "August 2026"
+  branchId: string; // 'all' or branch ID
+  branchName?: string;
+  runDate: string;
+  status: 'Draft' | 'Approved' | 'Paid' | 'Archived';
+  records: PayrollRecord[];
+  totalEmployees: number;
+  totalGross: number;
+  totalTax: number;
+  totalPensionEmployee: number;
+  totalPensionEmployer: number;
+  totalAdvancesDeducted: number;
+  totalOtherDeductions: number;
+  totalNet: number;
+  totalEmployerCost: number;
+  paymentMethod: string;
+  paymentReference?: string;
+  syncedToExpenses?: boolean;
+  expenseId?: string;
+  createdBy: string;
+  approvedBy?: string;
+  paidAt?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface SalaryAdvance {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeCode: string;
+  branchId: string;
+  amount: number;
+  remainingBalance: number;
+  monthlyDeduction: number;
+  reason: string;
+  requestDate: string;
+  approvedDate?: string;
+  approvedBy?: string;
+  status: 'Pending' | 'Approved' | 'Partially Repaid' | 'Fully Repaid' | 'Rejected';
+  repayments: {
+    date: string;
+    amount: number;
+    payrollRunId?: string;
+    notes?: string;
+  }[];
+  notes?: string;
+}
+
+export interface StaffAttendance {
+  id: string;
+  userId: string;
+  employeeCode?: string;
+  userName: string;
+  userRole: string;
+  branchId: string;
+  branchName?: string;
+  date: string; // YYYY-MM-DD
+  loginTime: string; // e.g. "08:30 AM"
+  logoutTime?: string; // e.g. "05:15 PM" (undefined or empty if active)
+  loginTimestamp: number;
+  logoutTimestamp?: number;
+  durationMinutes?: number;
+  status: 'active' | 'present' | 'late' | 'half_day' | 'overtime' | 'completed' | 'on_leave';
+  shiftType?: 'Morning' | 'Afternoon' | 'Night' | 'Full Day' | 'General';
+  method: 'auto_login' | 'manual' | 'qr_biometric';
+  device?: string;
+  ipAddress?: string;
+  notes?: string;
+  markedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AttendanceSettings {
+  enabled: boolean;
+  standardWorkHoursPerDay: number;
+  shiftStartTime: string;
+  shiftEndTime: string;
+  lateGraceMinutes: number;
+  autoClockOutOnLogout: boolean;
+  allowManualClockIn: boolean;
+  overtimeThresholdHours: number;
+}
+
 export interface DbSchema {
   branches: Branch[];
   users: (User & { passwordHash: string })[];
@@ -574,6 +752,11 @@ export interface DbSchema {
   onlineOrders?: OnlineOrder[];
   teleconsultations?: TeleconsultationSession[];
   visitors?: VisitorLogEntry[];
+  payrollProfiles?: PayrollProfile[];
+  payrollRuns?: PayrollRun[];
+  salaryAdvances?: SalaryAdvance[];
+  staffAttendance?: StaffAttendance[];
+  attendanceSettings?: AttendanceSettings;
   institution?: {
     name: string;
     address: string;

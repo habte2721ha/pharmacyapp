@@ -1477,7 +1477,7 @@ Please return a JSON object with:
 - "displayText": formatted markdown text for screen display with safety advice disclaimer written ENTIRELY in ${langName}.
 - "suggestedProducts": array of product names from live database that match.`;
 
-    const response = await ai.models.generateContent({
+    const generatePromise = ai.models.generateContent({
       model: 'gemini-3.7-flash',
       contents: prompt,
       config: {
@@ -1497,6 +1497,12 @@ Please return a JSON object with:
         }
       }
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Customer AI consultation timed out after 10s')), 10000)
+    );
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
 
     const parsed = JSON.parse(response.text?.trim() || '{}');
 
@@ -1617,7 +1623,7 @@ Return a structured JSON with:
 - "displayText": markdown formatted text for the UI written ENTIRELY in ${langName}
 - "data": optional extracted entity payload`;
 
-    const response = await ai.models.generateContent({
+    const generatePromise = ai.models.generateContent({
       model: 'gemini-3.7-flash',
       contents: prompt,
       config: {
@@ -1634,6 +1640,12 @@ Return a structured JSON with:
         }
       }
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Voice assistant command timed out after 10s')), 10000)
+    );
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
 
     const parsed = JSON.parse(response.text?.trim() || '{}');
 

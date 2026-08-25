@@ -19,28 +19,7 @@ export default defineConfig(() => {
       outDir: path.resolve(__dirname, 'dist'),
       emptyOutDir: false,
       cssCodeSplit: true,
-      chunkSizeWarningLimit: 1500,
-      rollupOptions: {
-        input: path.resolve(__dirname, 'index.html'),
-        output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom')) {
-                return 'vendor-react';
-              }
-              if (id.includes('lucide-react') || id.includes('motion')) {
-                return 'vendor-ui';
-              }
-              if (id.includes('recharts')) {
-                return 'vendor-charts';
-              }
-              if (id.includes('@google/genai') || id.includes('qrcode')) {
-                return 'vendor-sdk';
-              }
-            }
-          }
-        }
-      }
+      chunkSizeWarningLimit: 2000,
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

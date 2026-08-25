@@ -7,7 +7,8 @@ import {
   Sun, Moon, CreditCard, Receipt, Menu, X, Mic, LayoutGrid,
   ChevronLeft, ChevronRight, Eye, EyeOff, Key, ShoppingBag,
   Share2, Copy, Check, ExternalLink, MessageSquare, Send, Mail, QrCode, Globe, Printer, Sparkles, Stethoscope,
-  FolderTree, Video, PhoneCall, PhoneIncoming, Bell, PhoneOff, Volume2, VolumeX, PhoneForwarded
+  FolderTree, Video, PhoneCall, PhoneIncoming, Bell, PhoneOff, Volume2, VolumeX, PhoneForwarded,
+  SlidersHorizontal, ChevronDown, Type, Settings2, MoreVertical, Banknote, Clock, CalendarCheck
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -27,6 +28,8 @@ import OnlineOrdersPanel from './components/OnlineOrdersPanel.tsx';
 import TeleconsultationManager from './components/TeleconsultationManager.tsx';
 import { AutoBackupManager } from './components/AutoBackupManager.tsx';
 import CategoryManagerPanel from './components/CategoryManagerPanel.tsx';
+import PayrollManagerPanel from './components/PayrollManagerPanel.tsx';
+import StaffAttendancePanel from './components/StaffAttendancePanel.tsx';
 
 import { 
   StockTransferPanel, PurchaseManagerPanel, CustomerManagerPanel, 
@@ -36,7 +39,7 @@ import {
 import { 
   Branch, User as UserType, Medicine, StockItem, Supplier, 
   PurchaseOrder, StockTransfer, Customer, Expense, Sale, AuditLog,
-  PharmacyNote, UserRole, ProductCategory
+  PharmacyNote, UserRole, ProductCategory, StaffAttendance, AttendanceSettings
 } from './types.ts';
 
 export default function App() {
@@ -56,6 +59,8 @@ export default function App() {
 
   // Mobile navigation drawer toggle state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Mobile top header secondary actions dropdown toggle state
+  const [mobileHeaderDropdownOpen, setMobileHeaderDropdownOpen] = useState(false);
 
   // Offline/Online synchronization states
   const [isOffline, setIsOffline] = useState(offlineManager.isOffline());
@@ -139,6 +144,7 @@ export default function App() {
 
   // System Loading state
   const [loadingDb, setLoadingDb] = useState(false);
+  const [refreshNotification, setRefreshNotification] = useState<{ show: boolean; message: string; isError?: boolean }>({ show: false, message: '', isError: false });
   
   // Navigation State (Strictly isolated from background data sync cycles and per-tab navigation)
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -291,6 +297,10 @@ export default function App() {
         return roleStr === 'Cashier' || roleStr === 'Pharmacist' || roleStr === 'Branch Manager' || roleStr === 'Accountant' || perms.includes('customers') || perms.includes('customer');
       case 'finances':
         return roleStr === 'Accountant' || roleStr === 'Branch Manager' || perms.includes('report generation') || perms.includes('finances') || perms.includes('report');
+      case 'payroll':
+        return roleStr === 'Super Administrator' || roleStr === 'Admin' || roleStr === 'Administrator' || roleStr === 'Accountant' || roleStr === 'Branch Manager' || perms.includes('payroll') || perms.includes('finances');
+      case 'attendance':
+        return true; // Accessible to all staff members to punch in/out and view records
       case 'sales-history':
         return true; // Accessible to all roles with system access
       case 'teleconsultation':
@@ -366,6 +376,8 @@ export default function App() {
         return 'bg-gradient-to-r from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/20 font-bold';
       case 'finances':
         return 'bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-md shadow-amber-500/20 font-bold';
+      case 'payroll':
+        return 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-500/20 font-bold';
       case 'teleconsultation':
         return 'bg-gradient-to-r from-purple-600 to-violet-700 text-white shadow-md shadow-purple-500/20 font-bold';
       case 'admin':
@@ -380,6 +392,9 @@ export default function App() {
   };
 
   const refreshPharmacyNotes = async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
     try {
       const user = currentUserRef.current;
       const headers: Record<string, string> = {};
@@ -387,12 +402,14 @@ export default function App() {
         headers['X-User-Role'] = user.role;
         headers['X-User-Id'] = user.id;
       }
-      const res = await fetch('/api/pharmacy-notes', { headers });
+      const res = await fetch('/api/pharmacy-notes', { headers, signal: controller.signal });
       if (res.ok) {
         setPharmacyNotes(await res.json());
       }
     } catch (err) {
-      console.error('Failed to sync pharmacy notes:', err);
+      // Ignore abort errors or network blips
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
@@ -468,7 +485,11 @@ export default function App() {
     // 1. Establish Canonical Branch Registry
     const rawBranches: Branch[] = Array.isArray(raw.branches) && raw.branches.length > 0
       ? raw.branches
-      : fallbackBranches;
+      : (Array.isArray(fallbackBranches) && fallbackBranches.length > 0 ? fallbackBranches : [
+          { id: 'b1', name: 'Sonan Pharmacy Main Branch', code: 'HQ', address: 'Bole Road, Addis Ababa', phone: '+251-11-6112233' },
+          { id: 'b2', name: 'Sonan Pharmacy No. 2', code: 'BR2', address: 'Megenagna, Addis Ababa', phone: '+251-11-6223344' },
+          { id: 'b3', name: 'Sonan Pharmacy No. 3', code: 'BR3', address: 'Piassa, Addis Ababa', phone: '+251-11-6334455' }
+        ]);
 
     const validBranches: Branch[] = rawBranches
       .filter((b): b is Branch => Boolean(b && typeof b === 'object' && b.id))
@@ -482,7 +503,7 @@ export default function App() {
 
     const primaryBranch = validBranches.length > 0 
       ? validBranches[0] 
-      : { id: 'b1', name: 'Main Branch', code: 'HQ', address: '', phone: '' };
+      : { id: 'b1', name: 'Sonan Pharmacy Main Branch', code: 'HQ', address: '', phone: '' };
 
     // Fast lookup by ID, Name, and Code (case-insensitive)
     const branchLookup = new Map<string, Branch>();
@@ -504,8 +525,11 @@ export default function App() {
         const match = branchLookup.get(nameKey)!;
         return { branchId: match.id, branchName: match.name };
       }
-      // Fallback to primary branch to guarantee non-leaking canonical isolation
-      return { branchId: primaryBranch.id, branchName: primaryBranch.name };
+      // Preserve input identifier if provided, rather than destructively rewriting to primary branch
+      return { 
+        branchId: inputBranchId ? String(inputBranchId).trim() : primaryBranch.id, 
+        branchName: inputBranchName ? String(inputBranchName).trim() : primaryBranch.name 
+      };
     };
 
     // 2. Validate & Sanitize Sales (Prevent cross-branch report skewing & arithmetic corruptions)
@@ -676,20 +700,21 @@ export default function App() {
       const clientDbStr = localStorage.getItem('sonan_client_db_state');
       if (clientDbStr) {
         const parsed = JSON.parse(clientDbStr);
+        if (!parsed || typeof parsed !== 'object') return;
         const data = validateCrossBranchConsistency(parsed, branches);
-        if (data.branches && (!onlyIfEmpty || branches.length === 0)) setBranches(data.branches);
-        if (data.users && (!onlyIfEmpty || users.length === 0)) setUsers(data.users);
-        if (data.medicines && (!onlyIfEmpty || medicines.length === 0)) setMedicines(data.medicines);
-        if (data.stockItems && (!onlyIfEmpty || stockItems.length === 0)) setStockItems(data.stockItems);
-        if (data.suppliers && (!onlyIfEmpty || suppliers.length === 0)) setSuppliers(data.suppliers);
-        if (data.purchaseOrders && (!onlyIfEmpty || purchaseOrders.length === 0)) setPurchaseOrders(data.purchaseOrders);
-        if (data.transfers && (!onlyIfEmpty || transfers.length === 0)) setTransfers(data.transfers);
-        if (data.customers && (!onlyIfEmpty || customers.length === 0)) setCustomers(data.customers);
-        if (data.expenses && (!onlyIfEmpty || expenses.length === 0)) setExpenses(data.expenses);
-        if (data.sales && (!onlyIfEmpty || sales.length === 0)) setSales(data.sales);
-        if (data.categories && (!onlyIfEmpty || categories.length === 0)) setCategories(data.categories);
-        if (data.auditLogs && (!onlyIfEmpty || auditLogs.length === 0)) setAuditLogs(data.auditLogs);
-        if (data.pharmacyNotes && (!onlyIfEmpty || pharmacyNotes.length === 0)) setPharmacyNotes(data.pharmacyNotes);
+        if (Array.isArray(data.branches) && data.branches.length > 0 && (!onlyIfEmpty || branches.length === 0)) setBranches(data.branches);
+        if (Array.isArray(data.users) && data.users.length > 0 && (!onlyIfEmpty || users.length === 0)) setUsers(data.users);
+        if (Array.isArray(data.medicines) && data.medicines.length > 0 && (!onlyIfEmpty || medicines.length === 0)) setMedicines(data.medicines);
+        if (Array.isArray(data.stockItems) && (!onlyIfEmpty || stockItems.length === 0)) setStockItems(data.stockItems);
+        if (Array.isArray(data.suppliers) && (!onlyIfEmpty || suppliers.length === 0)) setSuppliers(data.suppliers);
+        if (Array.isArray(data.purchaseOrders) && (!onlyIfEmpty || purchaseOrders.length === 0)) setPurchaseOrders(data.purchaseOrders);
+        if (Array.isArray(data.transfers) && (!onlyIfEmpty || transfers.length === 0)) setTransfers(data.transfers);
+        if (Array.isArray(data.customers) && (!onlyIfEmpty || customers.length === 0)) setCustomers(data.customers);
+        if (Array.isArray(data.expenses) && (!onlyIfEmpty || expenses.length === 0)) setExpenses(data.expenses);
+        if (Array.isArray(data.sales) && (!onlyIfEmpty || sales.length === 0)) setSales(data.sales);
+        if (Array.isArray(data.categories) && data.categories.length > 0 && (!onlyIfEmpty || categories.length === 0)) setCategories(data.categories);
+        if (Array.isArray(data.auditLogs) && (!onlyIfEmpty || auditLogs.length === 0)) setAuditLogs(data.auditLogs);
+        if (Array.isArray(data.pharmacyNotes) && (!onlyIfEmpty || pharmacyNotes.length === 0)) setPharmacyNotes(data.pharmacyNotes);
         console.log('[Offline Support] Loaded validated database state from local cache.');
       }
     } catch (e) {
@@ -702,13 +727,13 @@ export default function App() {
 
   // Synchronously hydrate all collections into React state with strict cross-branch validation
   const applyAllData = (rawPayload: any) => {
-    if (!rawPayload) return;
+    if (!rawPayload || typeof rawPayload !== 'object') return;
 
     // Validate data consistency across branches to prevent report mixing during rapid state transitions
     const data = validateCrossBranchConsistency(rawPayload, branches);
 
-    if (data.branches) setBranches(data.branches);
-    if (data.users) {
+    if (Array.isArray(data.branches) && data.branches.length > 0) setBranches(data.branches);
+    if (Array.isArray(data.users) && data.users.length > 0) {
       setUsers(data.users);
       // Synchronize current tab's active user profile with fresh data from server only if values actually changed
       const activeUser = currentUserRef.current;
@@ -733,17 +758,57 @@ export default function App() {
         }
       }
     }
-    if (data.medicines) setMedicines(data.medicines);
-    if (data.stockItems) setStockItems(data.stockItems);
-    if (data.suppliers) setSuppliers(data.suppliers);
-    if (data.purchaseOrders) setPurchaseOrders(data.purchaseOrders);
-    if (data.transfers) setTransfers(data.transfers);
-    if (data.customers) setCustomers(data.customers);
-    if (data.expenses) setExpenses(data.expenses);
-    if (data.sales) setSales(data.sales);
-    if (data.categories) setCategories(data.categories);
-    if (data.auditLogs) setAuditLogs(data.auditLogs);
-    if (data.pharmacyNotes) setPharmacyNotes(data.pharmacyNotes);
+    if (Array.isArray(data.medicines)) {
+      if (data.medicines.length > 0 || medicines.length === 0) {
+        setMedicines(data.medicines);
+      }
+    }
+    if (Array.isArray(data.stockItems)) {
+      if (data.stockItems.length > 0 || stockItems.length === 0) {
+        setStockItems(data.stockItems);
+      }
+    }
+    if (Array.isArray(data.suppliers)) {
+      if (data.suppliers.length > 0 || suppliers.length === 0) {
+        setSuppliers(data.suppliers);
+      }
+    }
+    if (Array.isArray(data.purchaseOrders)) {
+      if (data.purchaseOrders.length > 0 || purchaseOrders.length === 0) {
+        setPurchaseOrders(data.purchaseOrders);
+      }
+    }
+    if (Array.isArray(data.transfers)) {
+      if (data.transfers.length > 0 || transfers.length === 0) {
+        setTransfers(data.transfers);
+      }
+    }
+    if (Array.isArray(data.customers)) {
+      if (data.customers.length > 0 || customers.length === 0) {
+        setCustomers(data.customers);
+      }
+    }
+    if (Array.isArray(data.expenses)) {
+      if (data.expenses.length > 0 || expenses.length === 0) {
+        setExpenses(data.expenses);
+      }
+    }
+    if (Array.isArray(data.sales)) {
+      if (data.sales.length > 0 || sales.length === 0) {
+        setSales(data.sales);
+      }
+    }
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      setCategories(data.categories);
+    }
+    if (Array.isArray(data.auditLogs)) {
+      if (data.auditLogs.length > 0 || auditLogs.length === 0) {
+        setAuditLogs(data.auditLogs);
+      }
+    }
+    if (Array.isArray(data.pharmacyNotes)) {
+      setPharmacyNotes(data.pharmacyNotes);
+    }
     setIsBackendConnected(true);
     setLoadingDb(false);
   };
@@ -752,12 +817,16 @@ export default function App() {
   const lastAllDataFetchTimeRef = React.useRef<number>(0);
 
   // 1. Core State Sync Engine (With Concurrency Control & Robust Retry Backoff)
-  const refreshAllCollections = async (retriesArg?: any, delay = 1000, silent = true) => {
+  const refreshAllCollections = async (retriesArg?: any, delay = 1000, silentArg?: any) => {
+    // If called directly from an event handler (e.g. onClick={refreshAllCollections}), retriesArg is a SyntheticEvent
+    const isManualClick = Boolean(retriesArg && typeof retriesArg === 'object' && 'nativeEvent' in retriesArg);
+    const silent = isManualClick ? false : (typeof silentArg === 'boolean' ? silentArg : (typeof retriesArg === 'boolean' ? retriesArg : true));
+    const retries = typeof retriesArg === 'number' ? retriesArg : (isManualClick ? 2 : 3);
+
     // Prevent overlapping parallel fetches of the bulk payload
     if (isFetchingAllDataRef.current) return;
     isFetchingAllDataRef.current = true;
 
-    const retries = typeof retriesArg === 'number' ? retriesArg : 3;
     try {
       if (!silent) {
         setLoadingDb(true);
@@ -788,6 +857,12 @@ export default function App() {
         }, 50);
 
         applyAllData(data);
+        if (!silent) {
+          setRefreshNotification({ show: true, message: 'Database records synchronized successfully', isError: false });
+          setTimeout(() => {
+            setRefreshNotification(prev => ({ ...prev, show: false }));
+          }, 3000);
+        }
       } else {
         if (retries > 0) {
           console.warn(`Fetch /api/all-data returned status ${res.status}. Retrying in ${delay}ms... (${retries} retries left)`);
@@ -801,6 +876,12 @@ export default function App() {
           loadLocalStateFallback(true);
           setIsBackendConnected(false);
           setLoadingDb(false);
+          if (!silent) {
+            setRefreshNotification({ show: true, message: 'Server unreachable. Loaded local cache.', isError: true });
+            setTimeout(() => {
+              setRefreshNotification(prev => ({ ...prev, show: false }));
+            }, 3500);
+          }
         }
       }
     } catch (err) {
@@ -817,6 +898,12 @@ export default function App() {
         loadLocalStateFallback(true);
         setIsBackendConnected(false);
         setLoadingDb(false);
+        if (!silent) {
+          setRefreshNotification({ show: true, message: 'Network offline. Using cached data.', isError: true });
+          setTimeout(() => {
+            setRefreshNotification(prev => ({ ...prev, show: false }));
+          }, 3500);
+        }
       }
     } finally {
       isFetchingAllDataRef.current = false;
@@ -896,8 +983,11 @@ export default function App() {
     if (!currentUser) return;
 
     const checkIncomingTeleconsultations = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       try {
-        const res = await fetch('/api/teleconsultations');
+        const res = await fetch('/api/teleconsultations', { signal: controller.signal });
         if (res.ok) {
           const list = await res.json();
           if (Array.isArray(list)) {
@@ -937,11 +1027,13 @@ export default function App() {
         }
       } catch (err) {
         // silent fail on network glitch
+      } finally {
+        clearTimeout(timeoutId);
       }
     };
 
     checkIncomingTeleconsultations();
-    const teleInterval = setInterval(checkIncomingTeleconsultations, 2500);
+    const teleInterval = setInterval(checkIncomingTeleconsultations, 4500);
     return () => clearInterval(teleInterval);
   }, [currentUser]);
 
@@ -1172,6 +1264,15 @@ export default function App() {
 
   const handleLogout = () => {
     const loggingOutId = currentUserRef.current?.id;
+    if (loggingOutId) {
+      try {
+        fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: loggingOutId })
+        }).catch(() => {});
+      } catch {}
+    }
     setCurrentUser(null);
     try {
       sessionStorage.removeItem('sonan_current_user');
@@ -1600,6 +1701,32 @@ export default function App() {
     return false;
   });
 
+  const lowOrOutOfStockInventoryCount = React.useMemo(() => {
+    if (!medicines || medicines.length === 0) return 0;
+    const effectiveBranchId = (currentUser && currentUser.role !== 'Super Administrator' && currentUser.role !== 'Auditor' && currentUser.role !== 'Accountant' && currentUser.branchId && currentUser.branchId !== 'all')
+      ? currentUser.branchId
+      : activeBranchContext;
+
+    const stockMap: Record<string, number> = {};
+    stockItems.forEach(st => {
+      if (st.isDamaged) return;
+      if (effectiveBranchId === 'all' || st.branchId === effectiveBranchId) {
+        stockMap[st.medicineId] = (stockMap[st.medicineId] || 0) + (Number(st.quantity) || 0);
+      }
+    });
+
+    let count = 0;
+    medicines.forEach(m => {
+      const qty = stockMap[m.id] || 0;
+      const minLevel = Number(m.minStockLevel) || 10;
+      if (qty === 0 || qty <= minLevel) {
+        count++;
+      }
+    });
+
+    return count;
+  }, [medicines, stockItems, currentUser, activeBranchContext]);
+
   const activeBranchName = activeBranchContext === 'all' ? 'All Active Nodes' : branches.find(b => b.id === activeBranchContext)?.name || 'Local node';
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 flex flex-col font-sans text-gray-800 dark:text-slate-100 transition-colors duration-200">
@@ -1761,25 +1888,28 @@ export default function App() {
       )}
 
       {/* Dynamic Sync Status Header banner */}
-      <header className="bg-white dark:bg-slate-900 border-b border-gray-150 dark:border-slate-800 sticky top-0 z-30 px-6 py-3 flex flex-wrap items-center justify-between gap-4 shadow-sm transition-colors duration-200">
+      <header className="bg-white dark:bg-slate-900 border-b border-gray-150 dark:border-slate-800 sticky top-0 z-30 px-3 sm:px-6 py-2 sm:py-3 flex items-center justify-between gap-2 shadow-xs transition-colors duration-200">
         
         {/* Logo and Context info */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           {/* Mobile menu toggle button */}
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-1.5 bg-gray-100 dark:bg-slate-800 rounded-lg text-gray-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700 cursor-pointer hover:bg-gray-200 transition-all shrink-0"
+            onClick={() => {
+              setMobileMenuOpen(!mobileMenuOpen);
+              if (mobileHeaderDropdownOpen) setMobileHeaderDropdownOpen(false);
+            }}
+            className="md:hidden p-2 bg-gray-100 dark:bg-slate-800 rounded-lg text-gray-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700 cursor-pointer hover:bg-gray-200 active:scale-95 transition-all shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
             title="Toggle Navigation Menu"
           >
-            {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            {mobileMenuOpen ? <X className="h-4.5 w-4.5" /> : <Menu className="h-4.5 w-4.5" />}
           </button>
 
           <div className="bg-emerald-700 text-white p-1.5 sm:p-2 rounded-lg shrink-0">
             <Building className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
           <div className="min-w-0">
-            <span className="text-[10px] sm:text-xs font-mono font-bold text-emerald-800 dark:text-emerald-400 uppercase block tracking-wider truncate">Advanced Pharmacy</span>
-            <span className="text-xs sm:text-sm font-sans font-black text-gray-950 dark:text-white block truncate">Enterprise Suite</span>
+            <span className="text-[10px] sm:text-xs font-mono font-bold text-emerald-800 dark:text-emerald-400 uppercase block tracking-wider truncate leading-tight">Sonan Pharmacy</span>
+            <span className="text-xs sm:text-sm font-sans font-black text-gray-950 dark:text-white block truncate leading-tight">Enterprise POS</span>
           </div>
 
           <div className="h-6 w-[1.5px] bg-gray-200 dark:bg-slate-800 hidden md:block"></div>
@@ -1806,7 +1936,7 @@ export default function App() {
         </div>
 
         {/* User context information & Theme switcher & Trigger Sync & logout */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
           {/* Font Size Adjuster Control (Desktop) */}
           <div className="hidden lg:flex items-center gap-1 bg-gray-55 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-gray-150 dark:border-slate-700 text-xs">
             <span className="font-bold text-gray-500 dark:text-gray-400">A</span>
@@ -1827,7 +1957,7 @@ export default function App() {
           <button
             onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
             title={theme === 'light' ? "Switch to dark mode (Late-night pharmacy shift)" : "Switch to light mode"}
-            className="p-1.5 sm:px-2.5 sm:py-1.5 bg-gray-55 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-gray-500 hover:text-gray-800 dark:text-slate-400 dark:hover:text-white border border-gray-150 dark:border-slate-700 transition-all duration-200 flex items-center gap-1.5 cursor-pointer shadow-sm text-xs"
+            className="p-2 sm:px-2.5 sm:py-1.5 bg-gray-55 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-gray-500 hover:text-gray-800 dark:text-slate-400 dark:hover:text-white border border-gray-150 dark:border-slate-700 transition-all duration-200 flex items-center gap-1.5 cursor-pointer shadow-xs text-xs min-h-[40px] min-w-[40px] justify-center"
           >
             {theme === 'light' ? (
               <>
@@ -1884,20 +2014,19 @@ export default function App() {
             )}
           </div>
 
-          {/* Mobile Offline Indicator Dot */}
-          <div className="flex sm:hidden items-center">
+          {/* Mobile Status Indicator */}
+          <div className="flex sm:hidden items-center gap-1">
             <span
-              className={`h-2.5 w-2.5 rounded-full ${isOffline ? 'bg-red-500' : 'bg-emerald-500'}`}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border ${
+                isOffline 
+                  ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800' 
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+              }`}
               title={isOffline ? 'Offline Mode' : 'Online Mode'}
-            />
-            {pendingSyncCount > 0 && (
-              <button
-                onClick={triggerManualSync}
-                className="ml-1 px-1.5 py-0.5 bg-emerald-600 text-white text-[9px] font-extrabold rounded-md animate-pulse"
-              >
-                {pendingSyncCount}
-              </button>
-            )}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isOffline ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`} />
+              <span>{isOffline ? 'Off' : 'Live'}</span>
+            </span>
           </div>
 
           {canAccessTab('teleconsultation') && queuedTeleCount > 0 && (
@@ -1910,7 +2039,7 @@ export default function App() {
                 setActiveTab('teleconsultation');
               }}
               title={`${queuedTeleCount} customer(s) requesting teleconsultation`}
-              className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg text-xs font-black transition cursor-pointer shadow-sm"
+              className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg text-xs font-black transition cursor-pointer shadow-sm min-h-[40px]"
             >
               <PhoneIncoming className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Call</span>
@@ -1918,6 +2047,7 @@ export default function App() {
             </button>
           )}
 
+          {/* Desktop Share Store Button */}
           {canAccessTab('online-orders') && (
             <button
               type="button"
@@ -1930,6 +2060,7 @@ export default function App() {
             </button>
           )}
 
+          {/* Desktop Refresh Button */}
           <button
             onClick={refreshAllCollections}
             disabled={loadingDb}
@@ -1939,6 +2070,20 @@ export default function App() {
             <RefreshCw className={`h-4 w-4 ${loadingDb ? 'animate-spin text-emerald-600 dark:text-emerald-400' : ''}`} />
           </button>
 
+          {/* Quick Staff Attendance Punch & Timesheet access */}
+          {canAccessTab('attendance') && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('attendance')}
+              title="Staff Attendance & Timesheet Tracker"
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 transition cursor-pointer"
+            >
+              <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Attendance</span>
+            </button>
+          )}
+
+          {/* Desktop User Info */}
           <div className="hidden md:block text-right leading-none space-y-1">
             <span className="text-xs font-bold text-gray-900 dark:text-white block">{currentUser.name}</span>
             <span className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 uppercase bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-100 dark:border-emerald-900/50 inline-block transition-colors duration-200">
@@ -1946,10 +2091,219 @@ export default function App() {
             </span>
           </div>
 
+          {/* Mobile Secondary Actions & Options Dropdown Menu Trigger Button */}
+          <div className="relative md:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileHeaderDropdownOpen(!mobileHeaderDropdownOpen)}
+              className={`p-2 rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 min-h-[40px] min-w-[40px] ${
+                mobileHeaderDropdownOpen
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                  : 'bg-gray-55 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 border-gray-200 dark:border-slate-700'
+              }`}
+              title="Quick Options (Branch, Font Size, Sync & Settings)"
+              aria-expanded={mobileHeaderDropdownOpen}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${mobileHeaderDropdownOpen ? 'rotate-180 text-white' : 'text-gray-400'}`} />
+              {pendingSyncCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 bg-amber-500 rounded-full animate-pulse border border-white dark:border-slate-900" />
+              )}
+            </button>
+
+            {/* Mobile Dropdown Menu Popover Panel */}
+            {mobileHeaderDropdownOpen && (
+              <>
+                {/* Backdrop overlay for outside tap dismissal */}
+                <div 
+                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                  onClick={() => setMobileHeaderDropdownOpen(false)} 
+                />
+
+                {/* Dropdown Menu Card */}
+                <div className="absolute right-0 top-full mt-2 w-[88vw] max-w-xs sm:max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 z-50 p-4 space-y-3.5 animate-in fade-in zoom-in-95 duration-150 text-left">
+                  
+                  {/* User Profile Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-gray-150 dark:border-slate-800">
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs shrink-0 border border-emerald-200 dark:border-emerald-800">
+                        {currentUser.name.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-black text-gray-900 dark:text-white truncate">
+                          {currentUser.name}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 uppercase bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.2 rounded border border-emerald-200/60 dark:border-emerald-800/60">
+                            {currentUser.role}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMobileHeaderDropdownOpen(false)}
+                      className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Branch Node Selector (Context switching on mobile) */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-gray-500 dark:text-slate-400 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Pharmacy Branch Node</span>
+                    </label>
+                    {(currentUser.role === 'Super Administrator' || currentUser.role === 'Auditor' || currentUser.role === 'Accountant') ? (
+                      <select
+                        value={activeBranchContext}
+                        onChange={(e) => {
+                          setActiveBranchContext(e.target.value);
+                          setMobileHeaderDropdownOpen(false);
+                        }}
+                        className="w-full text-xs font-bold bg-gray-50 dark:bg-slate-800 text-gray-900 dark:text-slate-100 p-2 rounded-xl border border-gray-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer min-h-[38px]"
+                      >
+                        <option value="all">🏬 Enterprise Nodes (All Branches)</option>
+                        {branches.map(b => (
+                          <option key={b.id} value={b.id}>📍 {b.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="p-2 bg-gray-50 dark:bg-slate-800/80 rounded-xl border border-gray-200 dark:border-slate-700 text-xs font-bold text-gray-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{activeBranchName} Node</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Font Display Scale Adjuster */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-gray-500 dark:text-slate-400 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Type className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Font Display Size</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold uppercase">{fontSize}</span>
+                    </label>
+                    <div className="grid grid-cols-4 gap-1 bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-slate-750">
+                      {(['sm', 'base', 'lg', 'xl'] as const).map((size) => (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => setFontSize(size)}
+                          className={`py-1.5 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer text-center min-h-[34px] flex items-center justify-center ${
+                            fontSize === size
+                              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs font-black'
+                              : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
+                          }`}
+                        >
+                          {size === 'sm' && 'Sm (A-)'}
+                          {size === 'base' && 'Normal'}
+                          {size === 'lg' && 'Lg (A+)'}
+                          {size === 'xl' && 'XL'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Network & Synchronization Deck */}
+                  <div className="p-2.5 bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-750 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-bold text-gray-600 dark:text-slate-400">Connection State:</span>
+                      <span className={`font-bold inline-flex items-center gap-1 ${isOffline ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        <span className={`h-2 w-2 rounded-full ${isOffline ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`} />
+                        {isOffline ? 'Offline Sync Active' : 'Online Connected'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => offlineManager.toggleSimulation()}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all cursor-pointer text-center min-h-[34px] ${
+                          isSimulated
+                            ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-300'
+                            : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 border-gray-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {isSimulated ? '🔌 Restore Network' : '📡 Work Offline'}
+                      </button>
+
+                      {pendingSyncCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerManualSync();
+                            setMobileHeaderDropdownOpen(false);
+                          }}
+                          disabled={syncInProgress}
+                          className="py-1.5 px-2.5 bg-emerald-600 text-white rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer animate-pulse min-h-[34px]"
+                        >
+                          🔄 Sync ({pendingSyncCount})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Secondary Quick Action Buttons */}
+                  <div className="space-y-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        refreshAllCollections();
+                        setMobileHeaderDropdownOpen(false);
+                      }}
+                      disabled={loadingDb}
+                      className="w-full py-2 px-3 rounded-xl bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-750 text-gray-700 dark:text-slate-200 text-xs font-bold flex items-center justify-between border border-gray-200 dark:border-slate-700 transition cursor-pointer min-h-[38px]"
+                    >
+                      <span className="flex items-center gap-2">
+                        <RefreshCw className={`w-4 h-4 text-emerald-600 ${loadingDb ? 'animate-spin' : ''}`} />
+                        <span>Refresh Database Records</span>
+                      </span>
+                    </button>
+
+                    {canAccessTab('online-orders') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileHeaderDropdownOpen(false);
+                          handleOpenAppShareModal();
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center justify-between border border-emerald-200 dark:border-emerald-900 transition cursor-pointer min-h-[38px]"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Share2 className="w-4 h-4 text-emerald-600" />
+                          <span>Customer Online Store Link &amp; QR</span>
+                        </span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileHeaderDropdownOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-red-50 dark:bg-red-950/40 hover:bg-red-100 text-red-700 dark:text-red-400 text-xs font-bold flex items-center justify-between border border-red-100 dark:border-red-900/50 transition cursor-pointer min-h-[38px]"
+                    >
+                      <span className="flex items-center gap-2">
+                        <LogOut className="w-4 h-4 text-red-600" />
+                        <span>Sign Out of System</span>
+                      </span>
+                    </button>
+                  </div>
+
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Primary Logout Button */}
           <button
             onClick={handleLogout}
             title="Sign out of system"
-            className="bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 p-1.5 sm:p-2.5 rounded border border-red-100 dark:border-red-900/40 transition-colors cursor-pointer shrink-0"
+            className="bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 p-2 sm:p-2.5 rounded-lg border border-red-100 dark:border-red-900/40 transition-colors cursor-pointer shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
           >
             <LogOut className="h-4 w-4" />
           </button>
@@ -2110,6 +2464,28 @@ export default function App() {
                 >
                   <Wallet className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'finances' ? 'text-white' : 'text-yellow-500'}`} />
                   Financials
+                </button>
+              )}
+
+              {canAccessTab('payroll') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('payroll')}
+                  className={`w-full text-left p-2.5 rounded-lg flex items-center gap-2.5 font-sans font-semibold transition-all cursor-pointer ${getTabStyles('payroll')}`}
+                >
+                  <Banknote className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'payroll' ? 'text-white' : 'text-emerald-500'}`} />
+                  Staff Payroll
+                </button>
+              )}
+
+              {canAccessTab('attendance') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('attendance')}
+                  className={`w-full text-left p-2.5 rounded-lg flex items-center gap-2.5 font-sans font-semibold transition-all cursor-pointer ${getTabStyles('attendance')}`}
+                >
+                  <Clock className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'attendance' ? 'text-white' : 'text-indigo-500'}`} />
+                  Staff Attendance
                 </button>
               )}
 
@@ -2351,6 +2727,24 @@ export default function App() {
               branches={branches} 
               expenses={expenses} 
               onDataChanged={handleSilentSync} 
+            />
+          )}
+
+          {activeTab === 'payroll' && (
+            <PayrollManagerPanel 
+              currentUser={currentUser} 
+              branches={branches} 
+              users={users} 
+              onDataChanged={handleSilentSync} 
+            />
+          )}
+
+          {activeTab === 'attendance' && (
+            <StaffAttendancePanel
+              currentUser={currentUser}
+              branches={branches}
+              users={users}
+              onDataChanged={handleSilentSync}
             />
           )}
 
@@ -2649,6 +3043,26 @@ export default function App() {
                         </span>
                         <span className="block text-[10px] text-gray-400 leading-relaxed truncate">
                           Financial audits, Profit &amp; Loss indices, and Sourcing performance metrics.
+                        </span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Payroll & Staff Salary */}
+                  {canAccessTab('payroll') && (
+                    <button
+                      onClick={() => { setActiveTab('payroll'); setShowAllMaximize(false); }}
+                      className="group p-4 bg-gray-50 hover:bg-emerald-50/50 dark:bg-slate-955 dark:hover:bg-slate-850/65 rounded-2xl border border-gray-150 hover:border-emerald-200 dark:border-slate-850 dark:hover:border-slate-750 text-left transition-all duration-250 hover:shadow-md cursor-pointer flex gap-4"
+                    >
+                      <div className="p-3 bg-emerald-600 rounded-xl text-white shadow-sm shadow-emerald-600/20 group-hover:scale-105 transition-transform shrink-0 flex items-center justify-center h-12 w-12">
+                        <Banknote className="h-6 w-6" />
+                      </div>
+                      <div className="space-y-1 overflow-hidden">
+                        <span className="block font-sans font-bold text-xs text-gray-950 dark:text-white uppercase tracking-wider group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                          Staff Payroll &amp; Compensation
+                        </span>
+                        <span className="block text-[10px] text-gray-400 leading-relaxed truncate">
+                          Monthly runs, Ethiopian income tax (ERCA), pension fund &amp; salary advances.
                         </span>
                       </div>
                     </button>
@@ -2997,8 +3411,17 @@ export default function App() {
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 font-medium'
             }`}
           >
-            <div className={`p-1 rounded-lg transition-all ${activeTab === 'inventory' ? 'bg-emerald-50 dark:bg-emerald-950/60 shadow-sm' : ''}`}>
+            <div className={`p-1 rounded-lg transition-all relative ${activeTab === 'inventory' ? 'bg-emerald-50 dark:bg-emerald-950/60 shadow-sm' : ''}`}>
               <Package className="h-5 w-5 stroke-[2.2]" />
+              {lowOrOutOfStockInventoryCount > 0 && (
+                <span
+                  id="mobile-nav-inventory-badge"
+                  title={`${lowOrOutOfStockInventoryCount} items out of stock or below threshold`}
+                  className="absolute -top-1 -right-1.5 min-w-[17px] h-[17px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs ring-2 ring-white dark:ring-slate-900"
+                >
+                  {lowOrOutOfStockInventoryCount > 99 ? '99+' : lowOrOutOfStockInventoryCount}
+                </span>
+              )}
             </div>
             <span className="text-[10px] mt-0.5 tracking-tight">Inventory</span>
           </button>
@@ -3231,6 +3654,26 @@ export default function App() {
                       <span>Financials &amp; Reports</span>
                     </button>
                   )}
+                  {canAccessTab('payroll') && (
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('payroll'); setMobileMenuOpen(false); }}
+                      className={`w-full text-left p-2.5 rounded-lg flex items-center gap-2.5 font-semibold transition-all cursor-pointer ${getTabStyles('payroll')}`}
+                    >
+                      <Banknote className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'payroll' ? 'text-white' : 'text-emerald-500'}`} />
+                      <span>Staff Payroll</span>
+                    </button>
+                  )}
+                  {canAccessTab('attendance') && (
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('attendance'); setMobileMenuOpen(false); }}
+                      className={`w-full text-left p-2.5 rounded-lg flex items-center gap-2.5 font-semibold transition-all cursor-pointer ${getTabStyles('attendance')}`}
+                    >
+                      <Clock className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'attendance' ? 'text-white' : 'text-indigo-500'}`} />
+                      <span>Staff Attendance</span>
+                    </button>
+                  )}
                   {canAccessTab('voice-assistance') && (
                     <button
                       type="button"
@@ -3329,6 +3772,22 @@ export default function App() {
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Refresh Status Notification Toast */}
+      {refreshNotification.show && (
+        <div 
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-bold border transition-all animate-in fade-in slide-in-from-bottom-3 duration-200 ${
+            refreshNotification.isError 
+              ? 'bg-rose-900 text-white border-rose-700' 
+              : 'bg-slate-900 dark:bg-slate-800 text-white border-slate-700 dark:border-slate-700'
+          }`}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${refreshNotification.isError ? 'text-rose-400' : 'text-emerald-400'}`} />
+          <span>{refreshNotification.message}</span>
         </div>
       )}
 
