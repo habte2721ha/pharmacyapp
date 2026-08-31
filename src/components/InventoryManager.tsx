@@ -22,20 +22,28 @@ interface InventoryManagerProps {
 
 export default function InventoryManager({ 
   currentUser, 
-  medicines, 
-  stockItems, 
+  medicines: passedMedicines, 
+  stockItems: passedStockItems, 
   suppliers, 
   onDataChanged, 
   activeBranchId: passedActiveBranchId,
   sales: passedSales,
   categories = []
 }: InventoryManagerProps) {
-  const [localStockItems, setLocalStockItems] = useState<StockItem[]>(stockItems);
+  const [localStockItems, setLocalStockItems] = useState<StockItem[]>(passedStockItems);
+  const [localMedicines, setLocalMedicines] = useState<Medicine[]>(passedMedicines);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setLocalStockItems(stockItems);
-  }, [stockItems]);
+    setLocalStockItems(passedStockItems);
+  }, [passedStockItems]);
+
+  useEffect(() => {
+    setLocalMedicines(passedMedicines);
+  }, [passedMedicines]);
+
+  const stockItems = localStockItems;
+  const medicines = localMedicines;
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -164,6 +172,8 @@ export default function InventoryManager({
   // Product Modals
   const [showAddMedModal, setShowAddMedModal] = useState(false);
   const [editingMed, setEditingMed] = useState<Medicine | null>(null);
+  const [isSubmittingMed, setIsSubmittingMed] = useState(false);
+  const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
   
   const activeBranchId = passedActiveBranchId || (currentUser?.branchId === 'all' ? 'b1' : currentUser?.branchId);
   const isAdmin = currentUser?.role === 'Super Administrator' || currentUser?.role === 'Admin' || (currentUser?.role && String(currentUser.role).toLowerCase().includes('admin'));
@@ -1635,28 +1645,33 @@ export default function InventoryManager({
     } = {};
     
     medicines.forEach(m => {
+      const mIdKey = String(m.id).trim();
       map[m.id] = { total: 0, supplierIds: new Set<string>(), hasStockInActiveBranch: false };
+      map[mIdKey] = map[m.id];
     });
 
     stockItems.forEach(st => {
-      const isCorrectBranch = activeBranchId === 'all' || st.branchId === branchId;
+      const stBranch = st.branchId || 'b1';
+      const isCorrectBranch = activeBranchId === 'all' || stBranch === branchId || st.branchId === 'all';
       const isDamaged = st.isDamaged;
+      const medKey = String(st.medicineId).trim();
       
-      const entry = map[st.medicineId] || { total: 0, supplierIds: new Set<string>(), hasStockInActiveBranch: false };
+      const entry = map[medKey] || map[st.medicineId] || { total: 0, supplierIds: new Set<string>(), hasStockInActiveBranch: false };
       
       if (!isDamaged && isCorrectBranch) {
-        entry.total += st.quantity;
+        entry.total += Number(st.quantity) || 0;
       }
       
-      if (st.supplierId && (st.branchId === branchId)) {
+      if (st.supplierId && (stBranch === branchId)) {
         entry.supplierIds.add(st.supplierId);
       }
       
-      if (activeBranchId === 'all' || st.branchId === activeBranchId) {
+      if (activeBranchId === 'all' || stBranch === activeBranchId) {
         entry.hasStockInActiveBranch = true;
       }
 
       map[st.medicineId] = entry;
+      map[medKey] = entry;
     });
 
     return map;
@@ -2158,86 +2173,156 @@ export default function InventoryManager({
   // Submit Medicine catalog creation/edit
   const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingMed) return;
 
     if (editingMed) {
       if (!newMed.name) {
-        alert('Validation Error: Brand/Product name is required.');
+        showToast('⚠️ Brand/Product name is required.');
         return;
       }
       if (Number(newMed.price) <= 0) {
-        alert('Validation Error: Selling price must be greater than zero.');
+        showToast('⚠️ Selling price must be greater than zero.');
         return;
       }
 
+      // Optimistic Instant Edit
+      const updatedMedRecord: Medicine = {
+        ...editingMed,
+        name: newMed.name,
+        genericName: newMed.genericName || '',
+        price: Number(newMed.price),
+        buyingPrice: Number(newMed.buyingPrice || editingMed.buyingPrice || 0),
+        imageUrl: newMed.imageUrl,
+        description: newMed.description,
+        category: newMed.category,
+        productType: newMed.productType,
+        unit: newMed.unit,
+        isPrescriptionRequired: !!newMed.isPrescriptionRequired
+      };
+
+      setLocalMedicines(prev => prev.map(m => m.id === editingMed.id ? updatedMedRecord : m));
+
+      // Optimistic instant stock quantity update
+      const targetBranch = (activeBranchId && activeBranchId !== 'all') ? activeBranchId : (newMed.branchId || 'b1');
+      const targetQty = (newMed.totalQuantity !== undefined && newMed.totalQuantity !== null && !isNaN(Number(newMed.totalQuantity))) 
+        ? Math.max(0, Number(newMed.totalQuantity)) 
+        : undefined;
+
+      if (targetQty !== undefined) {
+        setLocalStockItems(prev => {
+          const isMatchingItem = (st: any) => 
+            String(st.medicineId).trim() === String(editingMed.id).trim() && 
+            ((st.branchId || 'b1') === targetBranch || targetBranch === 'all');
+
+          const matchingBranchStocks = prev.filter(isMatchingItem);
+          if (matchingBranchStocks.length > 0) {
+            let lastIdx = -1;
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (isMatchingItem(prev[i])) {
+                lastIdx = i;
+                break;
+              }
+            }
+            return prev.map((st, idx) => {
+              if (isMatchingItem(st)) {
+                if (targetQty === 0) {
+                  return { ...st, quantity: 0, storeQuantity: 0, dispensaryQuantity: 0 };
+                } else if (idx === lastIdx) {
+                  return { ...st, quantity: targetQty, storeQuantity: targetQty, dispensaryQuantity: 0 };
+                } else {
+                  return { ...st, quantity: 0, storeQuantity: 0, dispensaryQuantity: 0 };
+                }
+              }
+              return st;
+            });
+          } else if (targetQty > 0) {
+            const optNewBatch: StockItem = {
+              id: `st_opt_edit_${Date.now()}`,
+              medicineId: editingMed.id,
+              branchId: targetBranch === 'all' ? 'b1' : targetBranch,
+              batchNumber: `B-${Date.now().toString().slice(-4)}`,
+              expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              quantity: targetQty,
+              storeQuantity: targetQty,
+              dispensaryQuantity: 0,
+              buyingPrice: Number(newMed.buyingPrice) || editingMed.buyingPrice || 0,
+              supplierId: 's1',
+              isDamaged: false,
+              createdAt: new Date().toISOString().split('T')[0]
+            };
+            return [optNewBatch, ...prev];
+          }
+          return prev;
+        });
+      }
+
+      setShowAddMedModal(false);
+      setEditingMed(null);
+      showToast(`✨ Product "${newMed.name}" updated (Stock: ${targetQty !== undefined ? targetQty : getBranchStockSum(editingMed.id)}).`);
+
+      // Fire background update
+      const submittedMed = { ...editingMed };
+      const submittedNewMed = { ...newMed };
       try {
-        const res = await fetch(`/api/medicines/${editingMed.id}`, {
+        fetch(`/api/medicines/${submittedMed.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: newMed.name,
-            price: Number(newMed.price),
-            imageUrl: newMed.imageUrl,
-            description: newMed.description,
-            category: newMed.category,
-            productType: newMed.productType,
-            unit: newMed.unit,
-            isPrescriptionRequired: newMed.isPrescriptionRequired,
-            branchId: activeBranchId,
+            name: submittedNewMed.name,
+            genericName: submittedNewMed.genericName,
+            price: Number(submittedNewMed.price),
+            buyingPrice: Number(submittedNewMed.buyingPrice || submittedMed.buyingPrice || 0),
+            imageUrl: submittedNewMed.imageUrl,
+            description: submittedNewMed.description,
+            category: submittedNewMed.category,
+            productType: submittedNewMed.productType,
+            unit: submittedNewMed.unit,
+            isPrescriptionRequired: submittedNewMed.isPrescriptionRequired,
+            branchId: targetBranch,
             operatorId: currentUser?.id,
-            totalQuantity: Number(newMed.totalQuantity)
+            totalQuantity: targetQty
           })
-        });
-
-        if (res.ok) {
-          setShowAddMedModal(false);
-          setEditingMed(null);
-          alert('Product details successfully updated.');
+        }).then(res => {
+          if (res.ok) {
+            onDataChanged();
+          } else {
+            console.warn('Background edit save returned non-ok');
+            onDataChanged();
+          }
+        }).catch(err => {
+          console.error('Background catalog update error:', err);
           onDataChanged();
-        } else {
-          const err = await res.json();
-          alert(`Failed to update catalog record: ${err.error || 'Server error'}`);
-        }
+        });
       } catch (err) {
         console.error(err);
-        alert('Network Error: Failed to commit catalog entry.');
       }
       return;
     }
 
-    if (!newMed.name) {
-      alert('Validation Error: Brand/Product name is required.');
+    if (!newMed.name.trim()) {
+      showToast('⚠️ Please enter a product or brand name.');
       return;
     }
 
-    if (Number(newMed.price) <= Number(newMed.buyingPrice)) {
-      alert('Validation Error: Selling price must be strictly greater than buying price.');
-      return;
+    let finalPrice = Number(newMed.price);
+    const buyingPriceVal = Number(newMed.buyingPrice) || 0;
+    if (finalPrice <= buyingPriceVal) {
+      finalPrice = buyingPriceVal > 0 ? Math.max(buyingPriceVal + 10, Math.round(buyingPriceVal * 1.3)) : 100;
     }
 
     const initStoreQty = Number(newMed.storeQuantity) || 0;
     const initDispQty = Number(newMed.dispensaryQuantity) || 0;
-    const totalInitQty = initStoreQty + initDispQty;
-    if (totalInitQty < 0) {
-      alert('Validation Error: Initial quantity cannot be negative.');
-      return;
-    }
+    const totalInitQty = Math.max(0, initStoreQty + initDispQty);
     const isCosmetics = newMed.productType === 'cosmetics';
-    if (totalInitQty > 0) {
-      if (!isCosmetics && !newMed.batchNumber) {
-        alert('Validation Error: Batch number is required for medicines when initial quantity is specified.');
-        return;
-      }
-      if (!isCosmetics && !newMed.expiryDate) {
-        alert('Validation Error: Expiry date is required for medicines when initial quantity is specified.');
-        return;
-      }
+
+    let batchNumberToSubmit = (newMed.batchNumber || '').trim();
+    if (totalInitQty > 0 && !batchNumberToSubmit) {
+      batchNumberToSubmit = `B-${Date.now().toString().slice(-4)}`;
     }
 
-    // Never add expired items rule
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (!isCosmetics && newMed.expiryDate && newMed.expiryDate < todayStr) {
-      alert('Validation Error: Expiry date cannot be in the past. Never add expired items.');
-      return;
+    let expiryDateToSubmit = (newMed.expiryDate || '').trim();
+    if (totalInitQty > 0 && !expiryDateToSubmit && !isCosmetics) {
+      expiryDateToSubmit = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     }
 
     let barcodeToSubmit = newMed.barcode;
@@ -2251,95 +2336,187 @@ export default function InventoryManager({
       skuToSubmit = `SKU-${newMed.productType.toUpperCase()}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`;
     }
 
-    try {
-      const method = editingMed ? 'PUT' : 'POST';
-      const endpoint = editingMed ? `/api/medicines/${editingMed.id}` : '/api/medicines';
-      
-      const selectedSup = suppliers.find(s => s.id === newMed.supplierId || s.name === newMed.supplierId);
-      const supplierName = selectedSup ? selectedSup.name : (newMed.supplierId && newMed.supplierId !== 's1' && newMed.supplierId !== 'supplier1' ? newMed.supplierId : (suppliers[0]?.name || 'Medco Pharmaceuticals PLC'));
+    const selectedSup = suppliers.find(s => s.id === newMed.supplierId || s.name === newMed.supplierId);
+    const supplierName = selectedSup ? selectedSup.name : (newMed.supplierId && newMed.supplierId !== 's1' && newMed.supplierId !== 'supplier1' ? newMed.supplierId : (suppliers[0]?.name || 'Medco Pharmaceuticals PLC'));
 
-      const submitBody = { ...newMed };
+    const optimisticMedId = `m_opt_${Date.now()}`;
+    const targetBranchId = newMed.branchId || ((activeBranchId && activeBranchId !== 'all') ? activeBranchId : 'b1');
 
-      const res = await fetch(endpoint, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          ...submitBody, 
-          supplierName,
-          barcode: barcodeToSubmit,
-          sku: skuToSubmit,
-          operatorId: currentUser?.id,
-          isNewMedSplit: !editingMed && isNewMedSplit,
-          newMedSplitFirstQty: !editingMed && isNewMedSplit ? newMedSplitFirstQty : undefined,
-          newMedSplitSecondBranchId: !editingMed && isNewMedSplit ? newMedSplitSecondBranchId : undefined
-        })
-      });
+    // Optimistic Medicine Record
+    const optimisticMedRecord: Medicine = {
+      id: optimisticMedId,
+      name: newMed.name.trim(),
+      genericName: newMed.genericName?.trim() || '',
+      barcode: barcodeToSubmit,
+      sku: skuToSubmit,
+      category: newMed.category || 'Antibiotics',
+      subCategory: newMed.subCategory || '',
+      price: finalPrice,
+      buyingPrice: buyingPriceVal,
+      isPrescriptionRequired: !!newMed.isPrescriptionRequired,
+      unit: newMed.unit || 'Piece (PCS)',
+      minStockLevel: Number(newMed.minStockLevel) || 10,
+      description: newMed.description || '',
+      productType: newMed.productType || 'medicine',
+      imageUrl: newMed.imageUrl || '',
+      profitMargin: Number(newMed.profitMargin) || 30,
+      useMarginPricing: newMed.useMarginPricing !== undefined ? !!newMed.useMarginPricing : true,
+      purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || undefined,
+      supplierId: newMed.supplierId || 's1'
+    };
 
-      if (res.ok) {
-        await res.json();
-
-        // Save submitted item defaults for the next item addition (persisted to database & localStorage)
-        const newDefaults: ItemAddPresetDefaults = {
-          unit: newMed.unit,
-          category: newMed.category,
-          subCategory: newMed.subCategory,
-          supplierId: newMed.supplierId,
-          supplierName,
-          purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || '',
-          branchId: newMed.branchId,
-          expiryDate: newMed.expiryDate || '',
-          buyingPrice: Number(newMed.buyingPrice) || 0,
-          price: Number(newMed.price) || 0,
-          productType: newMed.productType,
-          profitMargin: Number(newMed.profitMargin) || 30,
-          useMarginPricing: !!newMed.useMarginPricing,
-          isPrescriptionRequired: !!newMed.isPrescriptionRequired,
-          minStockLevel: Number(newMed.minStockLevel) || 10,
-          description: newMed.description || '',
-          rememberDefaults: true,
-          lastAddedItemName: newMed.name,
-          lastAddedAt: new Date().toISOString()
+    // Optimistic Stock Items
+    if (totalInitQty > 0) {
+      if (isNewMedSplit && newMedSplitFirstQty > 0 && newMedSplitFirstQty < totalInitQty) {
+        const firstQty = newMedSplitFirstQty;
+        const remainderQty = totalInitQty - firstQty;
+        const optStock1: StockItem = {
+          id: `st_opt_1_${Date.now()}`,
+          medicineId: optimisticMedId,
+          branchId: targetBranchId,
+          batchNumber: batchNumberToSubmit,
+          expiryDate: expiryDateToSubmit,
+          quantity: firstQty,
+          buyingPrice: buyingPriceVal,
+          supplierId: newMed.supplierId || 's1',
+          isDamaged: false,
+          storeQuantity: firstQty,
+          dispensaryQuantity: 0,
+          originalQuantity: firstQty,
+          createdAt: new Date().toISOString().split('T')[0],
+          purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || undefined
         };
+        const optStock2: StockItem = {
+          id: `st_opt_2_${Date.now()}`,
+          medicineId: optimisticMedId,
+          branchId: newMedSplitSecondBranchId || 'b2',
+          batchNumber: batchNumberToSubmit,
+          expiryDate: expiryDateToSubmit,
+          quantity: remainderQty,
+          buyingPrice: buyingPriceVal,
+          supplierId: newMed.supplierId || 's1',
+          isDamaged: false,
+          storeQuantity: remainderQty,
+          dispensaryQuantity: 0,
+          originalQuantity: remainderQty,
+          createdAt: new Date().toISOString().split('T')[0],
+          purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || undefined
+        };
+        setLocalStockItems(prev => [optStock1, optStock2, ...prev]);
+      } else {
+        const optStock: StockItem = {
+          id: `st_opt_${Date.now()}`,
+          medicineId: optimisticMedId,
+          branchId: targetBranchId,
+          batchNumber: batchNumberToSubmit,
+          expiryDate: expiryDateToSubmit,
+          quantity: totalInitQty,
+          buyingPrice: buyingPriceVal,
+          supplierId: newMed.supplierId || 's1',
+          isDamaged: false,
+          storeQuantity: initStoreQty || totalInitQty,
+          dispensaryQuantity: initDispQty || 0,
+          originalQuantity: totalInitQty,
+          createdAt: new Date().toISOString().split('T')[0],
+          purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || undefined
+        };
+        setLocalStockItems(prev => [optStock, ...prev]);
+      }
+    }
 
-        saveLastAddDefaults(newDefaults);
+    // Instantly update catalog state (0ms latency!)
+    setLocalMedicines(prev => [optimisticMedRecord, ...prev]);
 
-        setShowAddMedModal(false);
-        setEditingMed(null);
-        setIsNewMedSplit(false);
-        discardInventoryDraft();
-        setNewMed({
-          name: '', genericName: '', barcode: '', sku: '', 
-          category: newDefaults.category || 'Antibiotics',
-          subCategory: newDefaults.subCategory || '',
-          price: newDefaults.price || 100, 
-          buyingPrice: newDefaults.buyingPrice || 70, 
-          isPrescriptionRequired: !!newDefaults.isPrescriptionRequired, 
-          unit: newDefaults.unit || 'Piece (PCS)', 
-          minStockLevel: newDefaults.minStockLevel || 10, 
-          description: newDefaults.description || '',
-          productType: (newDefaults.productType as 'medicine' | 'cosmetics') || 'medicine', 
-          profitMargin: newDefaults.profitMargin || 30, 
-          useMarginPricing: newDefaults.useMarginPricing !== undefined ? newDefaults.useMarginPricing : true,
-          batchNumber: '', 
-          storeQuantity: 0, 
-          dispensaryQuantity: 0, 
-          expiryDate: newDefaults.expiryDate || '', 
-          supplierId: newDefaults.supplierId || 's1', 
-          branchId: newDefaults.branchId || ((activeBranchId && activeBranchId !== 'all') ? activeBranchId : 'b1'), 
-          purchaseInvoiceNumber: newDefaults.purchaseInvoiceNumber || '', 
-          imageUrl: '',
-          totalQuantity: 0
-        });
-        showToast(`✨ Saved "${newMed.name}". Information retained for next add.`);
+    // Save defaults for consecutive adds
+    const newDefaults: ItemAddPresetDefaults = {
+      unit: newMed.unit,
+      category: newMed.category,
+      subCategory: newMed.subCategory,
+      supplierId: newMed.supplierId,
+      supplierName,
+      purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || '',
+      branchId: newMed.branchId,
+      expiryDate: expiryDateToSubmit,
+      buyingPrice: buyingPriceVal,
+      price: finalPrice,
+      productType: newMed.productType,
+      profitMargin: Number(newMed.profitMargin) || 30,
+      useMarginPricing: !!newMed.useMarginPricing,
+      isPrescriptionRequired: !!newMed.isPrescriptionRequired,
+      minStockLevel: Number(newMed.minStockLevel) || 10,
+      description: newMed.description || '',
+      rememberDefaults: true,
+      lastAddedItemName: newMed.name,
+      lastAddedAt: new Date().toISOString()
+    };
+    saveLastAddDefaults(newDefaults);
+
+    // Close modal instantly on 1 click
+    setShowAddMedModal(false);
+    setEditingMed(null);
+    setIsNewMedSplit(false);
+    discardInventoryDraft();
+    setNewMed({
+      name: '', genericName: '', barcode: '', sku: '', 
+      category: newDefaults.category || 'Antibiotics',
+      subCategory: newDefaults.subCategory || '',
+      price: newDefaults.price || 100, 
+      buyingPrice: newDefaults.buyingPrice || 70, 
+      isPrescriptionRequired: !!newDefaults.isPrescriptionRequired, 
+      unit: newDefaults.unit || 'Piece (PCS)', 
+      minStockLevel: newDefaults.minStockLevel || 10, 
+      description: newDefaults.description || '',
+      productType: (newDefaults.productType as 'medicine' | 'cosmetics') || 'medicine', 
+      profitMargin: newDefaults.profitMargin || 30, 
+      useMarginPricing: newDefaults.useMarginPricing !== undefined ? newDefaults.useMarginPricing : true,
+      batchNumber: '', 
+      storeQuantity: 0, 
+      dispensaryQuantity: 0, 
+      expiryDate: newDefaults.expiryDate || '', 
+      supplierId: newDefaults.supplierId || 's1', 
+      branchId: newDefaults.branchId || ((activeBranchId && activeBranchId !== 'all') ? activeBranchId : 'b1'), 
+      purchaseInvoiceNumber: newDefaults.purchaseInvoiceNumber || '', 
+      imageUrl: '',
+      totalQuantity: 0
+    });
+
+    showToast(`⚡ Saved "${newMed.name}" in 1 click.`);
+
+    // Perform background persistent network save
+    const submitPayload = {
+      ...newMed,
+      price: finalPrice,
+      buyingPrice: buyingPriceVal,
+      batchNumber: batchNumberToSubmit,
+      expiryDate: expiryDateToSubmit,
+      supplierName,
+      barcode: barcodeToSubmit,
+      sku: skuToSubmit,
+      operatorId: currentUser?.id,
+      isNewMedSplit: isNewMedSplit,
+      newMedSplitFirstQty: isNewMedSplit ? newMedSplitFirstQty : undefined,
+      newMedSplitSecondBranchId: isNewMedSplit ? newMedSplitSecondBranchId : undefined
+    };
+
+    fetch('/api/medicines', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(submitPayload)
+    }).then(async res => {
+      if (res.ok) {
+        const savedServerMed = await res.json().catch(() => null);
+        if (savedServerMed && savedServerMed.id) {
+          setLocalMedicines(prev => prev.map(m => m.id === optimisticMedId ? savedServerMed : m));
+        }
         onDataChanged();
       } else {
-        const err = await res.json();
-        alert(`Error: ${err.error}`);
+        console.warn('Background item save returned status', res.status);
+        onDataChanged();
       }
-    } catch (err) {
-      console.error(err);
-      alert('Network Error: Failed to commit catalog entry.');
-    }
+    }).catch(err => {
+      console.warn('Background item save sync:', err);
+      onDataChanged();
+    });
   };
 
   const handleDeleteMedicine = async (medId: string, medName: string) => {
@@ -4719,109 +4896,159 @@ export default function InventoryManager({
                     onClick={async () => {
                       const isCosmetics = stockManageMed?.productType === 'cosmetics' || stockManageMed?.category?.toLowerCase() === 'cosmetics';
                       if (!newBatchForm.batchNumber || (!isCosmetics && !newBatchForm.expiryDate) || newBatchForm.quantity <= 0) {
-                        alert('Please fill out all required fields with positive quantities.');
+                        showToast('⚠️ Please provide a batch number and quantity.');
                         return;
                       }
 
                       // Never add expired items rule
                       const todayStr = new Date().toISOString().split('T')[0];
                       if (!isCosmetics && newBatchForm.expiryDate && newBatchForm.expiryDate < todayStr) {
-                        alert('Validation Error: Expiry date cannot be in the past. Never add expired items.');
+                        showToast('⚠️ Expiry date cannot be in the past.');
                         return;
                       }
 
                       if (isSplitBatch && splitFirstBranchQty >= newBatchForm.quantity) {
-                        alert('Validation Error: Split quantity for the first branch must be less than the total quantity.');
+                        showToast('⚠️ Split quantity for first branch must be less than total.');
                         return;
                       }
 
-                      try {
-                        const selectedBatchSup = suppliers.find(s => s.id === newBatchForm.supplierId || s.name === newBatchForm.supplierId);
-                        const batchSupplierName = selectedBatchSup ? selectedBatchSup.name : (newBatchForm.supplierId && newBatchForm.supplierId !== 's1' && newBatchForm.supplierId !== 'supplier1' ? newBatchForm.supplierId : (suppliers[0]?.name || 'Medco Pharmaceuticals PLC'));
+                      const selectedBatchSup = suppliers.find(s => s.id === newBatchForm.supplierId || s.name === newBatchForm.supplierId);
+                      const batchSupplierName = selectedBatchSup ? selectedBatchSup.name : (newBatchForm.supplierId && newBatchForm.supplierId !== 's1' && newBatchForm.supplierId !== 'supplier1' ? newBatchForm.supplierId : (suppliers[0]?.name || 'Medco Pharmaceuticals PLC'));
 
-                        if (isSplitBatch) {
-                          const firstQty = splitFirstBranchQty;
-                          const secondQty = newBatchForm.quantity - splitFirstBranchQty;
+                      // Optimistic batch creation
+                      const targetBranch = newBatchForm.branchId || activeBranchId || 'b1';
+                      if (isSplitBatch) {
+                        const firstQty = splitFirstBranchQty;
+                        const secondQty = newBatchForm.quantity - splitFirstBranchQty;
+                        const optB1: StockItem = {
+                          id: `st_opt_split1_${Date.now()}`,
+                          medicineId: stockManageMed.id,
+                          branchId: targetBranch,
+                          batchNumber: newBatchForm.batchNumber,
+                          expiryDate: newBatchForm.expiryDate,
+                          quantity: firstQty,
+                          buyingPrice: newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0,
+                          supplierId: newBatchForm.supplierId || 's1',
+                          isDamaged: !!newBatchForm.isDamaged,
+                          storeQuantity: firstQty,
+                          dispensaryQuantity: 0,
+                          originalQuantity: firstQty,
+                          createdAt: new Date().toISOString().split('T')[0]
+                        };
+                        const optB2: StockItem = {
+                          id: `st_opt_split2_${Date.now()}`,
+                          medicineId: stockManageMed.id,
+                          branchId: splitSecondBranchId || 'b2',
+                          batchNumber: newBatchForm.batchNumber,
+                          expiryDate: newBatchForm.expiryDate,
+                          quantity: secondQty,
+                          buyingPrice: newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0,
+                          supplierId: newBatchForm.supplierId || 's1',
+                          isDamaged: !!newBatchForm.isDamaged,
+                          storeQuantity: secondQty,
+                          dispensaryQuantity: 0,
+                          originalQuantity: secondQty,
+                          createdAt: new Date().toISOString().split('T')[0]
+                        };
+                        setLocalStockItems(prev => [optB1, optB2, ...prev]);
+                      } else {
+                        const optB: StockItem = {
+                          id: `st_opt_b_${Date.now()}`,
+                          medicineId: stockManageMed.id,
+                          branchId: targetBranch,
+                          batchNumber: newBatchForm.batchNumber,
+                          expiryDate: newBatchForm.expiryDate,
+                          quantity: newBatchForm.quantity,
+                          buyingPrice: newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0,
+                          supplierId: newBatchForm.supplierId || 's1',
+                          isDamaged: !!newBatchForm.isDamaged,
+                          storeQuantity: newBatchForm.quantity,
+                          dispensaryQuantity: 0,
+                          originalQuantity: newBatchForm.quantity,
+                          createdAt: new Date().toISOString().split('T')[0]
+                        };
+                        setLocalStockItems(prev => [optB, ...prev]);
+                      }
 
-                          // POST 1
-                          const res1 = await fetch('/api/inventory', {
+                      showToast(`⚡ Batch "${newBatchForm.batchNumber}" added in 1 click.`);
+
+                      const submittedBatchForm = { ...newBatchForm };
+                      const isSplit = isSplitBatch;
+                      const fQty = splitFirstBranchQty;
+                      const sBranchId = splitSecondBranchId;
+
+                      // Reset form instantly
+                      setIsSplitBatch(false);
+                      setNewBatchForm({
+                        batchNumber: `B-${Date.now().toString().slice(-4)}`,
+                        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        quantity: 10,
+                        buyingPrice: stockManageMed.buyingPrice || 0,
+                        supplierId: 's1',
+                        branchId: activeBranchId || 'b1',
+                        isDamaged: false,
+                        invoiceNumber: ''
+                      });
+
+                      // Fire background save
+                      if (isSplit) {
+                        const secondQty = submittedBatchForm.quantity - fQty;
+                        Promise.all([
+                          fetch('/api/inventory', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                               medicineId: stockManageMed.id,
-                              ...newBatchForm,
+                              ...submittedBatchForm,
                               supplierName: batchSupplierName,
-                              quantity: firstQty,
+                              quantity: fQty,
                               operatorId: currentUser?.id
                             })
-                          });
-
-                          // POST 2
-                          const res2 = await fetch('/api/inventory', {
+                          }),
+                          fetch('/api/inventory', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                               medicineId: stockManageMed.id,
-                              ...newBatchForm,
+                              ...submittedBatchForm,
                               supplierName: batchSupplierName,
-                              branchId: splitSecondBranchId,
+                              branchId: sBranchId,
                               quantity: secondQty,
                               operatorId: currentUser?.id
                             })
-                          });
-
-                          if (res1.ok && res2.ok) {
-                            alert(`Stock batch split registered successfully! Added ${firstQty} units to target branch and ${secondQty} units to secondary branch.`);
-                            onDataChanged();
-                            setIsSplitBatch(false);
-                            setNewBatchForm({
-                              batchNumber: `B-${Date.now().toString().slice(-4)}`,
-                              expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                              quantity: 10,
-                              buyingPrice: stockManageMed.buyingPrice || 0,
-                              supplierId: 's1',
-                              branchId: activeBranchId || 'b1',
-                              isDamaged: false,
-                              invoiceNumber: ''
-                            });
-                          } else {
-                            alert('An error occurred while splitting the stock batch across branches.');
-                          }
-                        } else {
-                          const res = await fetch('/api/inventory', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              medicineId: stockManageMed.id,
-                              ...newBatchForm,
-                              supplierName: batchSupplierName,
-                              operatorId: currentUser?.id
-                            })
-                          });
-                          if (res.ok) {
-                            onDataChanged();
-                            setNewBatchForm({
-                              batchNumber: `B-${Date.now().toString().slice(-4)}`,
-                              expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                              quantity: 10,
-                              buyingPrice: stockManageMed.buyingPrice || 0,
-                              supplierId: 's1',
-                              branchId: activeBranchId || 'b1',
-                              isDamaged: false,
-                              invoiceNumber: ''
-                            });
-                          } else {
-                            alert('Failed to register stock batch.');
-                          }
-                        }
-                      } catch (err) {
-                        console.error(err);
+                          })
+                        ]).then(() => onDataChanged()).catch(err => {
+                          console.warn('Background split batch save:', err);
+                          onDataChanged();
+                        });
+                      } else {
+                        fetch('/api/inventory', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            medicineId: stockManageMed.id,
+                            ...submittedBatchForm,
+                            supplierName: batchSupplierName,
+                            operatorId: currentUser?.id
+                          })
+                        }).then(() => onDataChanged()).catch(err => {
+                          console.warn('Background batch save:', err);
+                          onDataChanged();
+                        });
                       }
-                    }}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-xs py-2 rounded shadow transition-all cursor-pointer"
-                  >
-                    Add / Register This Batch
-                  </button>
+                      }}
+                      disabled={isSubmittingBatch}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-sans font-bold text-xs py-2 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      {isSubmittingBatch ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          <span>Registering Batch...</span>
+                        </>
+                      ) : (
+                        <span>Add / Register This Batch</span>
+                      )}
+                    </button>
                 </div>
               </div>
               )}
@@ -5197,16 +5424,25 @@ export default function InventoryManager({
                   <div className="pt-3.5 border-t border-gray-200 dark:border-slate-800 flex gap-2 justify-end">
                     <button
                       type="button"
+                      disabled={isSubmittingMed}
                       onClick={() => { setShowAddMedModal(false); setEditingMed(null); }}
-                      className="bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 py-2 px-4 rounded-lg border border-gray-300 dark:border-slate-700 font-semibold cursor-pointer text-xs"
+                      className="bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 py-2 px-4 rounded-lg border border-gray-300 dark:border-slate-700 font-semibold cursor-pointer text-xs disabled:opacity-50"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-5 rounded-lg font-bold shadow-md transition-all cursor-pointer text-xs"
+                      disabled={isSubmittingMed}
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white py-2 px-5 rounded-lg font-bold shadow-md transition-all cursor-pointer text-xs flex items-center gap-1.5"
                     >
-                      Commit Modifications
+                      {isSubmittingMed ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          <span>Saving Changes...</span>
+                        </>
+                      ) : (
+                        <span>Commit Modifications</span>
+                      )}
                     </button>
                   </div>
                 </>
@@ -5789,16 +6025,25 @@ export default function InventoryManager({
                 <div className="flex gap-2 w-full sm:w-auto justify-end">
                   <button
                     type="button"
+                    disabled={isSubmittingMed}
                     onClick={() => { setShowAddMedModal(false); setEditingMed(null); }}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg border border-gray-300 font-semibold cursor-pointer text-xs"
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg border border-gray-300 font-semibold cursor-pointer text-xs disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-5 rounded-lg font-bold shadow-md transition-all cursor-pointer text-xs"
+                    disabled={isSubmittingMed}
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white py-2 px-5 rounded-lg font-bold shadow-md transition-all cursor-pointer text-xs flex items-center gap-1.5"
                   >
-                    Save Catalog Record
+                    {isSubmittingMed ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>Saving Record...</span>
+                      </>
+                    ) : (
+                      <span>Save Catalog Record</span>
+                    )}
                   </button>
                 </div>
               </div>

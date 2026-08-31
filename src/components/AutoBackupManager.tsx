@@ -48,16 +48,25 @@ export function AutoBackupManager({ currentUser }: AutoBackupManagerProps) {
           })
         });
 
-        // 2. Trigger browser download
+        // 2. Trigger browser download safely using fetch and Blob object URL
         const ext = format === 'sql' ? 'sql' : format === 'csv' ? 'csv' : format === 'xml' ? 'xml' : 'json';
         const downloadUrl = `/api/backup/export?branchId=${branch}&format=${format}`;
         
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `sonan_auto_daily_backup_${todayStr}.${ext}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const res = await fetch(downloadUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = `sonan_auto_daily_backup_${todayStr}.${ext}`;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          setTimeout(() => {
+            if (link.parentNode) link.parentNode.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+          }, 1500);
+        }
 
         // 3. Show toast notification to user
         setNotification({

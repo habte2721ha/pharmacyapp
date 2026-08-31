@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sonan-pharmacy-assets-v1';
+const CACHE_NAME = 'sonan-pharmacy-v2';
 
 // Static assets to precache on installation
 const PRECACHE_ASSETS = [
@@ -12,15 +12,15 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Pre-caching offline app shell...');
-      return cache.addAll(PRECACHE_ASSETS).catch(err => {
-        console.warn('[SW] Pre-cache warning (some files may not exist yet):', err);
+      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
+        console.warn('[SW] Pre-cache warning:', err);
       });
     })
   );
   self.skipWaiting();
 });
 
-// SW Activate Event - Clean old caches and claim clients
+// SW Activate Event - Clean old caches and claim clients immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -36,51 +36,53 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// SW Fetch Event - Offline proxy
+// SW Fetch Event - Offline-first for static assets, network-first for navigation with offline fallback
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Skip non-GET requests, protocols other than http/https, and API calls.
-  // Also skip hot-reload dev server sockets and hot-update modules.
+  // Ignore non-GET, chrome-extension, and API endpoints (handled in app via offlineManager)
   if (
-    event.request.method !== 'GET' || 
-    !url.protocol.startsWith('http') || 
-    url.pathname.startsWith('/api/') || 
+    event.request.method !== 'GET' ||
+    !url.protocol.startsWith('http') ||
+    url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/@vite') ||
-    url.pathname.startsWith('/node_modules/') ||
     url.pathname.includes('hot-update') ||
     url.pathname.includes('/sockjs-node')
   ) {
     return;
   }
 
-  // SPA navigation fallback: serve index.html for navigation requests
+  // 1. SPA navigation requests (e.g. page reloads, bookmark visits)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put('/', clone);
-            });
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/', clone));
           }
-          return response;
+          return networkResponse;
         })
-        .catch(() => {
-          console.log('[SW] Offline navigate request - serving cached index.html');
-          return caches.match('/');
+        .catch(async () => {
+          console.log('[SW] Network unreachable. Serving offline shell for navigation.');
+          const cached = await caches.match('/') || await caches.match('/index.html');
+          if (cached) return cached;
+          return new Response(
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sonan Pharmacy Offline</title></head><body style="font-family:sans-serif;padding:2rem;text-align:center;"><h2>Offline Mode Active</h2><p>Please reload to access your cached offline workspace.</p><button onclick="location.reload()" style="padding:10px 20px;border-radius:8px;background:#059669;color:white;border:none;cursor:pointer;">Reload</button></body></html>',
+            { headers: { 'Content-Type': 'text/html' } }
+          );
         })
     );
     return;
   }
 
-  // Stale-While-Revalidate caching strategy for other static assets (JS, CSS, images, fonts)
+  // 2. Static Assets (JS chunks, CSS stylesheets, images, web fonts)
+  // Stale-While-Revalidate with Cache Fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request)
         .then((networkResponse) => {
-          if (networkResponse.ok) {
+          if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, clone);
@@ -88,9 +90,9 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch((err) => {
-          console.debug('[SW] Network request failed for static asset:', url.pathname, err);
-          // Return undefined or let cached response take over
+        .catch(() => {
+          // If network failed and we have no cache, return empty or cached fallback
+          return cachedResponse;
         });
 
       return cachedResponse || fetchPromise;

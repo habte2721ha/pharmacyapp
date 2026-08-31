@@ -3,9 +3,12 @@ import {
   Upload, Download, RefreshCw, CheckCircle, AlertOctagon, 
   Terminal, HardDrive, ClipboardList, Database, AlertCircle, 
   ChevronRight, Play, Info, Check, CornerDownRight, HelpCircle,
-  Clock, Zap, Calendar, Sparkles, CheckCircle2
+  Clock, Zap, Calendar, Sparkles, CheckCircle2, ShieldCheck,
+  Shield, Server, AlertTriangle, Layers, FileJson, Trash2,
+  ArrowDownCircle, ArrowUpCircle, X
 } from 'lucide-react';
 import { BackupRecord } from '../types.ts';
+import { criticalStateBackup, CriticalBackupSummary, StorageHealthCheck } from '../utils/criticalStateBackup.ts';
 
 interface BackupRestoreWizardProps {
   currentUser: any;
@@ -17,6 +20,155 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+
+  // IndexedDB Fail-Safe State Backup
+  const [failSafeBackups, setFailSafeBackups] = useState<CriticalBackupSummary[]>([]);
+  const [storageHealth, setStorageHealth] = useState<StorageHealthCheck | null>(null);
+  const [failSafeLoading, setFailSafeLoading] = useState(false);
+  const [failSafeActionMsg, setFailSafeActionMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [showFailSafeModal, setShowFailSafeModal] = useState(false);
+  const [failSafeCustomReason, setFailSafeCustomReason] = useState('');
+  const [restoringSnapId, setRestoringSnapId] = useState<string | null>(null);
+
+  const loadFailSafeStatus = async () => {
+    try {
+      const [list, health] = await Promise.all([
+        criticalStateBackup.listBackups(),
+        criticalStateBackup.checkStorageHealth()
+      ]);
+      setFailSafeBackups(list);
+      setStorageHealth(health);
+    } catch (e) {
+      console.warn('Failed to query fail-safe status:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadFailSafeStatus();
+    const handleSaved = () => loadFailSafeStatus();
+    const handleRestored = () => loadFailSafeStatus();
+    window.addEventListener('critical-backup-saved', handleSaved);
+    window.addEventListener('critical-state-restored', handleRestored);
+    return () => {
+      window.removeEventListener('critical-backup-saved', handleSaved);
+      window.removeEventListener('critical-state-restored', handleRestored);
+    };
+  }, []);
+
+  const handleCreateFailSafeSnapshot = async () => {
+    try {
+      setFailSafeLoading(true);
+      setFailSafeActionMsg(null);
+      
+      let payloadToSave: any = null;
+      try {
+        const res = await fetch('/api/all-data');
+        if (res.ok) {
+          payloadToSave = await res.json();
+        }
+      } catch {}
+
+      if (!payloadToSave) {
+        const local = localStorage.getItem('sonan_client_db_state');
+        if (local) {
+          payloadToSave = JSON.parse(local);
+        }
+      }
+
+      if (!payloadToSave) {
+        throw new Error('Unable to retrieve current database state to protect.');
+      }
+
+      const reason = failSafeCustomReason.trim() || `Manual fail-safe checkpoint by ${currentUser?.name || currentUser?.username || 'Pharmacist'}`;
+      const summary = await criticalStateBackup.saveCriticalStateBackup(payloadToSave, reason);
+      setFailSafeCustomReason('');
+      await loadFailSafeStatus();
+      setFailSafeActionMsg({
+        text: `Success: Protected ${summary.itemCounts.medicines} medicines, ${summary.itemCounts.customers} customers, and ${summary.itemCounts.sales} sales in IndexedDB!`,
+        isError: false
+      });
+    } catch (err: any) {
+      setFailSafeActionMsg({ text: `Failed to create fail-safe checkpoint: ${err.message}`, isError: true });
+    } finally {
+      setFailSafeLoading(false);
+    }
+  };
+
+  const handleRestoreFromFailSafe = async (backupId?: string) => {
+    if (!confirm('Are you sure you want to restore critical state (medicines, customers, sales) from this IndexedDB fail-safe snapshot? Active client state will be updated.')) {
+      return;
+    }
+    try {
+      setRestoringSnapId(backupId || 'latest');
+      setFailSafeActionMsg(null);
+      const res = await criticalStateBackup.restoreFromIndexedDb(backupId);
+      if (res.success) {
+        setFailSafeActionMsg({
+          text: `Success: ${res.message}`,
+          isError: false
+        });
+        onRestoreSuccess();
+        await loadFailSafeStatus();
+      } else {
+        setFailSafeActionMsg({
+          text: `Restore failed: ${res.message}`,
+          isError: true
+        });
+      }
+    } catch (err: any) {
+      setFailSafeActionMsg({ text: `Restore error: ${err.message}`, isError: true });
+    } finally {
+      setRestoringSnapId(null);
+    }
+  };
+
+  const handleExportFailSafeFile = async (backupId?: string) => {
+    try {
+      const { filename, blob } = await criticalStateBackup.exportBackupJson(backupId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Export error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteFailSafe = async (backupId: string) => {
+    if (!confirm('Are you sure you want to delete this IndexedDB fail-safe snapshot?')) return;
+    try {
+      await criticalStateBackup.deleteBackup(backupId);
+      await loadFailSafeStatus();
+    } catch (err: any) {
+      alert(`Delete error: ${err.message}`);
+    }
+  };
+
+  const handleImportFailSafeFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setFailSafeLoading(true);
+      const text = await file.text();
+      const res = await criticalStateBackup.importBackupJson(text);
+      if (res.success) {
+        setFailSafeActionMsg({ text: `Success: ${res.message}`, isError: false });
+        onRestoreSuccess();
+        await loadFailSafeStatus();
+      } else {
+        setFailSafeActionMsg({ text: `Import failed: ${res.message}`, isError: true });
+      }
+    } catch (err: any) {
+      setFailSafeActionMsg({ text: `Import error: ${err.message}`, isError: true });
+    } finally {
+      setFailSafeLoading(false);
+      e.target.value = '';
+    }
+  };
   
   // Custom export states
   const [exportBranchId, setExportBranchId] = useState<string>('all');
@@ -63,6 +215,86 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
     localStorage.setItem('sonan_auto_daily_backup_schedule', sched);
   };
 
+  const handleDownloadBackup = async (options: { branchId?: string; format?: string; type?: string; filename?: string }) => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (options.branchId) params.append('branchId', options.branchId);
+      if (options.format) params.append('format', options.format);
+      if (options.type) params.append('type', options.type);
+
+      const res = await fetch(`/api/backup/export?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`Server returned error: ${res.status} ${res.statusText}`);
+      }
+
+      let downloadFilename = options.filename;
+      const disposition = res.headers.get('Content-Disposition') || res.headers.get('content-disposition');
+      if (disposition && disposition.includes('filename=')) {
+        const match = disposition.match(/filename=(?:["']?)([^"';\n]+)(?:["']?)/);
+        if (match && match[1]) {
+          downloadFilename = match[1].replace(/["']/g, '');
+        }
+      }
+      if (!downloadFilename) {
+        const ext = options.format === 'sql' ? 'sql' : options.format === 'csv' ? 'csv' : options.format === 'xml' ? 'xml' : 'json';
+        const branchLabel = options.branchId === 'all' || !options.branchId ? 'all_branches' : `branch_${options.branchId}`;
+        downloadFilename = `sonan_backup_${branchLabel}_${new Date().toISOString().split('T')[0]}.${ext}`;
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = downloadFilename;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+
+      setTimeout(() => {
+        if (link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+        URL.revokeObjectURL(blobUrl);
+      }, 1500);
+
+      // Log manual backup record on server
+      await fetch('/api/backup/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operatorId: currentUser?.id || 'admin',
+          type: options.type === 'items' ? 'Items List Only' : 'Full',
+          scheduleType: 'Manual Download'
+        })
+      }).catch(() => {});
+      fetchBackups();
+
+    } catch (err: any) {
+      console.error('Backup download error:', err);
+      // Resilient Fallback: If network / server export encounters any issue, generate offline JSON backup directly from local state!
+      try {
+        const fallbackRes = await criticalStateBackup.exportBackupJson();
+        const fallbackUrl = URL.createObjectURL(fallbackRes.blob);
+        const link = document.createElement('a');
+        link.href = fallbackUrl;
+        link.download = fallbackRes.filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          if (link.parentNode) link.parentNode.removeChild(link);
+          URL.revokeObjectURL(fallbackUrl);
+        }, 1500);
+        alert(`Notice: Downloaded client-side emergency database backup ("${fallbackRes.filename}") directly from local vault.`);
+      } catch (localErr) {
+        alert(`Download failed: ${err?.message || 'Server unreachable'}. Please check your connection and retry.`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const triggerAutoBackupTestNow = async () => {
     try {
       setLoading(true);
@@ -78,12 +310,25 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
 
       const ext = autoDailyBackupFormat === 'sql' ? 'sql' : autoDailyBackupFormat === 'csv' ? 'csv' : autoDailyBackupFormat === 'xml' ? 'xml' : 'json';
       const downloadUrl = `/api/backup/export?branchId=${autoDailyBackupBranch}&format=${autoDailyBackupFormat}`;
+      
+      const res = await fetch(downloadUrl);
+      if (!res.ok) {
+        throw new Error(`Export response status: ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = downloadUrl;
+      link.href = blobUrl;
       link.download = `sonan_auto_daily_backup_${new Date().toISOString().split('T')[0]}.${ext}`;
+      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+
+      setTimeout(() => {
+        if (link.parentNode) link.parentNode.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+      }, 1500);
 
       const todayStr = new Date().toISOString().split('T')[0];
       const timeStr = new Date().toTimeString().split(' ')[0].slice(0, 5);
@@ -94,9 +339,9 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
 
       fetchBackups();
       alert(`Success: Automatic daily backup triggered & downloaded successfully! (${autoDailyBackupFormat.toUpperCase()} format)`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Failed to trigger test auto backup.');
+      alert(`Failed to trigger test auto backup: ${err.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -1373,6 +1618,101 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
         {/* Right sidebar actions: Trigger Backup, Download, History log list */}
         <div className="space-y-6">
           
+          {/* IndexedDB Fail-Safe Vault Card */}
+          <div className="bg-gradient-to-br from-teal-950 via-slate-900 to-slate-950 text-white rounded-xl shadow-md border border-teal-800/40 p-5 space-y-4 relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-teal-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-teal-300">
+                  IndexedDB Fail-Safe Vault
+                </h3>
+              </div>
+              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                failSafeBackups.length > 0
+                  ? 'bg-teal-500/20 text-teal-300 border-teal-500/40' 
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              }`}>
+                {failSafeBackups.length > 0 ? 'PROTECTED' : 'READY'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-300 leading-snug">
+              Guarantees recovery for critical records (Medicines, Customers, Sales) in persistent IndexedDB even if the browser clears localStorage or site cache.
+            </p>
+
+            {/* Storage Vulnerability Warning Alert if localStorage was lost */}
+            {storageHealth?.isStorageVulnerable && (
+              <div className="bg-amber-500/20 border border-amber-400/40 p-2.5 rounded-lg text-xs text-amber-200 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1 text-[11px]">
+                  <p className="font-semibold text-amber-300">Primary localStorage was cleared</p>
+                  <p className="text-slate-300">IndexedDB holds your safe snapshot. Click below to restore instantly.</p>
+                  <button
+                    onClick={() => handleRestoreFromFailSafe()}
+                    disabled={restoringSnapId !== null}
+                    className="mt-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] transition"
+                  >
+                    {restoringSnapId ? 'Restoring...' : 'Auto-Restore Primary State'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Live Stats */}
+            <div className="grid grid-cols-3 gap-2 bg-slate-850/80 border border-slate-750 p-2.5 rounded-lg text-center">
+              <div>
+                <span className="text-[10px] font-medium text-slate-400 block">Medicines</span>
+                <span className="text-xs font-bold text-teal-300">
+                  {storageHealth?.latestBackupInfo?.itemCounts?.medicines ?? 0}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-medium text-slate-400 block">Customers</span>
+                <span className="text-xs font-bold text-teal-300">
+                  {storageHealth?.latestBackupInfo?.itemCounts?.customers ?? 0}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-medium text-slate-400 block">Sales</span>
+                <span className="text-xs font-bold text-teal-300">
+                  {storageHealth?.latestBackupInfo?.itemCounts?.sales ?? 0}
+                </span>
+              </div>
+            </div>
+
+            {failSafeActionMsg && (
+              <div className={`p-2 rounded text-[11px] font-medium ${
+                failSafeActionMsg.isError 
+                  ? 'bg-red-500/20 text-red-300 border border-red-500/30' 
+                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+              }`}>
+                {failSafeActionMsg.text}
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
+              <button
+                onClick={handleCreateFailSafeSnapshot}
+                disabled={failSafeLoading}
+                className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-2 px-3 rounded shadow flex items-center justify-center gap-1.5 transition disabled:opacity-50 cursor-pointer"
+              >
+                <ShieldCheck className={`h-3.5 w-3.5 ${failSafeLoading ? 'animate-spin' : ''}`} />
+                {failSafeLoading ? 'Securing Checkpoint...' : 'Take Fail-Safe Snapshot'}
+              </button>
+
+              <button
+                onClick={() => {
+                  loadFailSafeStatus();
+                  setShowFailSafeModal(true);
+                }}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs py-2 px-3 rounded border border-slate-700 shadow-sm flex items-center justify-center gap-1.5 transition cursor-pointer"
+              >
+                <Layers className="h-3.5 w-3.5 text-teal-400" />
+                Open Fail-Safe Recovery Center ({failSafeBackups.length})
+              </button>
+            </div>
+          </div>
+
           {/* Automatic Daily Backup Scheduler Card */}
           <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-xl shadow-md border border-slate-800 p-5 space-y-4">
             <div className="flex items-center justify-between">
@@ -1574,32 +1914,38 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                   </select>
                 </div>
 
-                <a
-                  href={`/api/backup/export?branchId=${exportBranchId}&format=${exportFormat}`}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-semibold text-xs py-2 px-3 rounded shadow-md flex items-center justify-center gap-1.5 transition-all text-center mt-2 cursor-pointer"
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => handleDownloadBackup({ branchId: exportBranchId, format: exportFormat })}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-sans font-semibold text-xs py-2 px-3 rounded shadow-md flex items-center justify-center gap-1.5 transition-all text-center mt-2 cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  Download Filtered Backup
-                </a>
+                  {loading ? 'Downloading...' : 'Download Filtered Backup'}
+                </button>
               </div>
 
               <div className="border-t border-gray-150 my-1"></div>
 
-              <a
-                href="/api/backup/export?branchId=all&format=json"
-                className="bg-white hover:bg-gray-55 text-gray-750 font-sans font-medium text-xs py-2 px-3 rounded border border-gray-300 shadow-sm flex items-center justify-center gap-1.5 transition-all text-center"
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => handleDownloadBackup({ branchId: 'all', format: 'json' })}
+                className="w-full bg-white hover:bg-gray-55 disabled:opacity-50 text-gray-750 font-sans font-medium text-xs py-2 px-3 rounded border border-gray-300 shadow-sm flex items-center justify-center gap-1.5 transition-all text-center cursor-pointer"
               >
-                <Download className="h-3.5 w-3.5" />
+                <Download className="h-3.5 w-3.5 text-emerald-600" />
                 Quick Export Full JSON
-              </a>
+              </button>
 
-              <a
-                href="/api/backup/export?type=items&format=json"
-                className="bg-white hover:bg-gray-55 text-gray-750 font-sans font-medium text-xs py-2 px-3 rounded border border-gray-300 shadow-sm flex items-center justify-center gap-1.5 transition-all text-center"
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => handleDownloadBackup({ type: 'items', format: 'json' })}
+                className="w-full bg-white hover:bg-gray-55 disabled:opacity-50 text-gray-750 font-sans font-medium text-xs py-2 px-3 rounded border border-gray-300 shadow-sm flex items-center justify-center gap-1.5 transition-all text-center cursor-pointer"
               >
-                <Download className="h-3.5 w-3.5" />
+                <Download className="h-3.5 w-3.5 text-teal-600" />
                 Quick Export Items Catalog
-              </a>
+              </button>
             </div>
           </div>
 
@@ -1676,6 +2022,249 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
         </div>
 
       </div>
+
+      {/* Fail-Safe Recovery Center Modal */}
+      {showFailSafeModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full border border-gray-200 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-teal-900 to-slate-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-teal-500/20 rounded-lg border border-teal-400/30">
+                  <ShieldCheck className="h-6 w-6 text-teal-300" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    IndexedDB Fail-Safe State Recovery Center
+                  </h3>
+                  <p className="text-xs text-teal-200/80 mt-0.5">
+                    Browser-level persistent storage protecting medicines, customers, and sales
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowFailSafeModal(false)}
+                className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-5 flex-1 bg-slate-50/50">
+              
+              {/* Storage Status & Diagnostic Banner */}
+              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <HardDrive className="h-4 w-4 text-teal-600" />
+                    Storage Health &amp; Diagnostics
+                  </span>
+                  <span className="text-[11px] font-semibold text-gray-500">
+                    {storageHealth?.indexedDbBackupCount ?? 0} Snapshots in IndexedDB
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="bg-teal-50/70 border border-teal-100 p-2.5 rounded-lg">
+                    <span className="text-[10px] font-semibold text-teal-700 uppercase block">Medicines</span>
+                    <span className="text-sm font-black text-teal-900">
+                      {storageHealth?.latestBackupInfo?.itemCounts?.medicines ?? 0}
+                    </span>
+                  </div>
+                  <div className="bg-teal-50/70 border border-teal-100 p-2.5 rounded-lg">
+                    <span className="text-[10px] font-semibold text-teal-700 uppercase block">Customers</span>
+                    <span className="text-sm font-black text-teal-900">
+                      {storageHealth?.latestBackupInfo?.itemCounts?.customers ?? 0}
+                    </span>
+                  </div>
+                  <div className="bg-teal-50/70 border border-teal-100 p-2.5 rounded-lg">
+                    <span className="text-[10px] font-semibold text-teal-700 uppercase block">Sales</span>
+                    <span className="text-sm font-black text-teal-900">
+                      {storageHealth?.latestBackupInfo?.itemCounts?.sales ?? 0}
+                    </span>
+                  </div>
+                  <div className="bg-slate-100 border border-slate-200 p-2.5 rounded-lg">
+                    <span className="text-[10px] font-semibold text-slate-600 uppercase block">Storage Quota</span>
+                    <span className="text-xs font-bold text-slate-800">
+                      {storageHealth?.storageEstimate?.usageBytes 
+                        ? `${(storageHealth.storageEstimate.usageBytes / (1024 * 1024)).toFixed(1)} MB` 
+                        : 'Persistent'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Message if any */}
+              {failSafeActionMsg && (
+                <div className={`p-3 rounded-xl text-xs font-semibold ${
+                  failSafeActionMsg.isError 
+                    ? 'bg-red-50 text-red-800 border border-red-200' 
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                }`}>
+                  {failSafeActionMsg.text}
+                </div>
+              )}
+
+              {/* Quick Actions: Snapshot Creator & JSON Import/Export */}
+              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider block">
+                  Create New Fail-Safe Checkpoint
+                </span>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    placeholder="Checkpoint reason/label (e.g., Pre-import backup, EOD verification)..."
+                    value={failSafeCustomReason}
+                    onChange={(e) => setFailSafeCustomReason(e.target.value)}
+                    className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-gray-800 outline-none focus:bg-white focus:border-teal-500"
+                  />
+                  <button
+                    onClick={handleCreateFailSafeSnapshot}
+                    disabled={failSafeLoading}
+                    className="bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow flex items-center justify-center gap-1.5 transition disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    {failSafeLoading ? 'Saving...' : 'Save Checkpoint'}
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => handleExportFailSafeFile()}
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition"
+                  >
+                    <Download className="h-3.5 w-3.5 text-teal-600" />
+                    Export Latest Fail-Safe (.json)
+                  </button>
+
+                  <label className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition cursor-pointer">
+                    <Upload className="h-3.5 w-3.5 text-teal-600" />
+                    Import External Fail-Safe File
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleImportFailSafeFile}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Snapshots List */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    Stored Snapshots History ({failSafeBackups.length})
+                  </h4>
+                  <button
+                    onClick={loadFailSafeStatus}
+                    className="text-[11px] text-teal-600 hover:text-teal-700 font-semibold flex items-center gap-1"
+                  >
+                    <RefreshCw className="h-3 w-3" /> Refresh List
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {failSafeBackups.length === 0 ? (
+                    <div className="bg-white p-6 rounded-xl border border-gray-200 text-center text-gray-500 text-xs space-y-2">
+                      <Shield className="h-8 w-8 text-gray-300 mx-auto" />
+                      <p className="font-semibold text-gray-600">No Fail-Safe Snapshots Saved Yet</p>
+                      <p className="text-[11px] text-gray-400">
+                        Click "Save Checkpoint" above or take any action in the app to initialize your first snapshot.
+                      </p>
+                    </div>
+                  ) : (
+                    failSafeBackups.map((snap, idx) => (
+                      <div
+                        key={snap.id}
+                        className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs hover:border-teal-300 transition space-y-3"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-900">
+                                {snap.reason || 'Point-in-time Snapshot'}
+                              </span>
+                              {idx === 0 && (
+                                <span className="bg-teal-100 text-teal-800 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">
+                                  LATEST
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-gray-500 block">
+                              {snap.date} • Checksum: <span className="font-mono text-[10px] text-gray-600">{snap.checksum}</span> • Size: {(snap.sizeBytes / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleRestoreFromFailSafe(snap.id)}
+                              disabled={restoringSnapId === snap.id}
+                              className="bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <RefreshCw className={`h-3 w-3 ${restoringSnapId === snap.id ? 'animate-spin' : ''}`} />
+                              {restoringSnapId === snap.id ? 'Restoring...' : 'Restore State'}
+                            </button>
+
+                            <button
+                              onClick={() => handleExportFailSafeFile(snap.id)}
+                              title="Download JSON file for this snapshot"
+                              className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteFailSafe(snap.id)}
+                              title="Delete this snapshot"
+                              className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Counts Pill Summary */}
+                        <div className="flex flex-wrap gap-2 text-[10px] font-semibold text-gray-600">
+                          <span className="bg-teal-50 text-teal-800 px-2 py-0.5 rounded border border-teal-100">
+                            📦 {snap.itemCounts.medicines} Medicines
+                          </span>
+                          <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-100">
+                            👥 {snap.itemCounts.customers} Customers
+                          </span>
+                          <span className="bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-100">
+                            🧾 {snap.itemCounts.sales} Sales Invoices
+                          </span>
+                          {snap.itemCounts.stockItems > 0 && (
+                            <span className="bg-purple-50 text-purple-800 px-2 py-0.5 rounded border border-purple-100">
+                              🏷️ {snap.itemCounts.stockItems} Stock Batches
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-white p-4 border-t border-gray-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowFailSafeModal(false)}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs py-2 px-4 rounded-lg transition"
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {showWipeModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">

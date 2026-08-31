@@ -279,7 +279,7 @@ export default function PosTerminal({
   const [showRegisterModal, setShowRegisterModal] = useState(false);
 
   // Offline Sales state & persistence
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
   const [offlineModeOverride, setOfflineModeOverride] = useState<boolean>(false);
   const [queuedOfflineSales, setQueuedOfflineSales] = useState<any[]>(() => {
     try {
@@ -292,22 +292,60 @@ export default function PosTerminal({
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const [showOfflineQueueModal, setShowOfflineQueueModal] = useState(false);
 
+  // Active server connectivity probe & sync trigger
   useEffect(() => {
+    let isChecking = false;
+    const checkServerConnection = async () => {
+      if (isChecking) return;
+      isChecking = true;
+      try {
+        const res = await fetch('/api/sync/version', {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (res.ok) {
+          setIsOnline(true);
+        }
+      } catch {
+        // Only set offline if standard browser says offline too
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          setIsOnline(false);
+        }
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    // Initial check
+    checkServerConnection();
+    const interval = setInterval(checkServerConnection, 5000);
+
     const handleOnline = () => {
       setIsOnline(true);
-      showToast('🌐 Internet Connection Restored! You can now sync queued offline sales.', 'success');
+      checkServerConnection();
     };
     const handleOffline = () => {
-      setIsOnline(false);
-      showToast('📡 Connection Lost: POS switched to Offline Sales Mode.', 'info');
+      // Re-verify before declaring offline
+      checkServerConnection();
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
+      clearInterval(interval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Auto-sync queued offline sales when online
+  useEffect(() => {
+    if (isOnline && !offlineModeOverride && queuedOfflineSales.length > 0 && !isSyncingOffline) {
+      const timer = setTimeout(() => {
+        syncOfflineSales();
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [isOnline, offlineModeOverride, queuedOfflineSales.length]);
 
   const saveQueuedOfflineSales = (updated: any[]) => {
     setQueuedOfflineSales(updated);
@@ -320,10 +358,6 @@ export default function PosTerminal({
 
   const syncOfflineSales = async () => {
     if (queuedOfflineSales.length === 0) return;
-    if (!navigator.onLine) {
-      showToast('Cannot sync: Internet connection is offline.', 'error');
-      return;
-    }
 
     setIsSyncingOffline(true);
     let successCount = 0;
@@ -355,7 +389,7 @@ export default function PosTerminal({
       onSaleCompleted();
     }
     if (remaining.length > 0) {
-      showToast(`⚠️ ${remaining.length} offline sale(s) could not be synced and remain in queue.`, 'info');
+      showToast(`⚠️ ${remaining.length} offline sale(s) could not be synced yet.`, 'info');
     }
   };
 
@@ -1049,7 +1083,7 @@ export default function PosTerminal({
         onlineOrderId: activeLoadedOrder ? activeLoadedOrder.id : undefined
       };
 
-      const isOfflineTransaction = !navigator.onLine || offlineModeOverride;
+      const isOfflineTransaction = offlineModeOverride || (!isOnline && typeof navigator !== 'undefined' && !navigator.onLine);
 
       if (isOfflineTransaction) {
         const now = new Date();

@@ -3,7 +3,7 @@ import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
-import { loadDb, saveDb, validateAndRestoreDb, isSimilarName } from './src/server/db.ts';
+import { loadDb, saveDb, validateAndRestoreDb, isSimilarName, getDbHealthStats } from './src/server/db.ts';
 import { processVoiceCommand } from './src/server/voiceAssistantService.ts';
 import { 
   User, Medicine, StockItem, Supplier, Sale, SaleItem, 
@@ -25,25 +25,148 @@ const getRelativeDateStr = (days: number): string => {
   return d.toISOString().split('T')[0];
 };
 
+// Process-level crash protection to prevent unhandled errors from terminating the Node server
+process.on('uncaughtException', (err: any) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[${timestamp}] [UNCAUGHT EXCEPTION PREVENTED CRASH]:`, err?.stack || err?.message || err);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[${timestamp}] [UNHANDLED REJECTION PREVENTED CRASH]:`, reason?.stack || reason?.message || reason);
+});
+
+process.on('SIGTERM', () => {
+  console.log('[SHUTDOWN] SIGTERM received. Gracefully flushing database state before exit...');
+  try {
+    const db = loadDb();
+    saveDb(db);
+  } catch {}
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('[SHUTDOWN] SIGINT received. Gracefully flushing database state before exit...');
+  try {
+    const db = loadDb();
+    saveDb(db);
+  } catch {}
+  process.exit(0);
+});
+
+// Cache for POS transaction idempotency (double-click & duplicate prevention)
+const posIdempotencyCache = new Map<string, { timestamp: number; sale: Sale }>();
+
+// Periodic cleanup of idempotency cache (keep for 60 seconds)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of posIdempotencyCache.entries()) {
+    if (now - value.timestamp > 60000) {
+      posIdempotencyCache.delete(key);
+    }
+  }
+}, 30000);
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Enable trust proxy for reverse proxies, Cloud Run, load balancers, and custom domains
+  app.set('trust proxy', 1);
 
   // Security Hardening: Disable fingerprint header
   app.disable('x-powered-by');
 
+  // Cross-Origin / Custom Domain Support
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   // Instant Health Check for Cloud Run / reverse proxy probes
   app.get('/api/health', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.json({ status: 'ok', timestamp: Date.now(), service: 'Sonan Pharmacy Backend' });
+    const dbStats = getDbHealthStats();
+    res.json({
+      status: 'ok',
+      serverStatus: 'online',
+      databaseStatus: dbStats.databaseStatus || 'healthy',
+      database: dbStats.database || 'connected',
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      version: '2.5.0',
+      service: 'Sonan Pharmacy Production ERP',
+      memory: {
+        rssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
+        heapUsedMb: Math.round(process.memoryUsage().heapUsed / (1024 * 1024))
+      },
+      counts: dbStats.counts
+    });
   });
 
-  // Request timeout protector (safeguards against 504 gateway hang-ups)
+  // Dedicated Database Health Check
+  app.get(['/api/health/database', '/api/health/db'], (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    try {
+      const stats = getDbHealthStats();
+      res.json({
+        ...stats,
+        uptime: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+        version: '2.5.0'
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        status: 'error',
+        serverStatus: 'online',
+        databaseStatus: 'degraded',
+        message: 'Database check failed: ' + (err?.message || 'Unknown error'),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Request Timeout Middleware (25s) to prevent reverse proxy 504 Gateway Timeouts
   app.use((req, res, next) => {
-    req.setTimeout(25000, () => {
+    if (!req.path.startsWith('/api/')) return next();
+    if (req.path.startsWith('/api/health')) return next();
+
+    const timer = setTimeout(() => {
       if (!res.headersSent) {
-        console.warn(`[REQUEST TIMEOUT] Path ${req.method} ${req.url} timed out after 25s.`);
-        res.status(504).json({ error: 'Request processing timed out. Please try again.' });
+        console.error(`[REQUEST TIMEOUT] 504 Gateway Timeout prevented for: ${req.method} ${req.originalUrl}`);
+        res.status(503).json({
+          error: 'Service Temporarily Unavailable',
+          message: 'Request timed out on server. Please retry shortly.',
+          path: req.originalUrl,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }, 25000);
+
+    res.on('finish', () => clearTimeout(timer));
+    res.on('close', () => clearTimeout(timer));
+    next();
+  });
+
+  // Production Diagnostics Request Logger (logs method, endpoint, status, latency)
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) return next();
+    if (req.path.startsWith('/api/health')) return next();
+
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      const status = res.statusCode;
+      const logLine = `${req.method} ${req.originalUrl || req.url} ${status} ${duration}ms`;
+      if (duration > 1500) {
+        console.warn(`[SLOW API] ${logLine}`);
+      } else {
+        console.log(logLine);
       }
     });
     next();
@@ -164,6 +287,19 @@ async function startServer() {
     next();
   });
 
+  // Support JSON and urlencoded request bodies with safe cap
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+  // Middleware to catch malformed JSON body parse errors gracefully
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof SyntaxError && 'status' in err && (err as any).status === 400 && 'body' in err) {
+      console.warn(`[BAD REQUEST] Malformed JSON payload on ${req.method} ${req.originalUrl || req.url}`);
+      return res.status(400).json({ error: 'Malformed JSON payload provided.', message: err.message });
+    }
+    next(err);
+  });
+
   // Prototype Pollution & Injection Payload Sanitizer
   app.use((req, res, next) => {
     const sanitize = (obj: any) => {
@@ -171,7 +307,6 @@ async function startServer() {
       for (const key of Object.keys(obj)) {
         if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
           delete obj[key];
-          console.warn(`[SECURITY DEFENSE] Stripped dangerous prototype key '${key}' from request.`);
         } else if (typeof obj[key] === 'object') {
           sanitize(obj[key]);
         }
@@ -184,10 +319,6 @@ async function startServer() {
 
     next();
   });
-
-  // Support large backup payloads with safe cap
-  app.use(express.json({ limit: '150mb' }));
-  app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
   // Helper to send automated email dispatch and save in db
   const sendEmailInternal = (
@@ -588,17 +719,66 @@ async function startServer() {
     });
   };
 
-  // Helper to construct complete client state payload in a single, fast O(N) pass
-  const buildAllDataPayload = (db: any, userRole?: string | string[]) => {
+  // Interface for /api/all-data query options & indexed filtering
+  interface AllDataOptions {
+    userRole?: string | string[];
+    userId?: string;
+    page?: number;
+    limit?: number;
+    branchId?: string;
+    category?: string;
+    search?: string;
+    collections?: string[];
+    since?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    branchOnly?: boolean;
+  }
+
+  // Helper to construct complete or paginated/filtered client state payload with high-performance indexes
+  const buildAllDataPayload = (db: any, optionsOrRole?: string | string[] | AllDataOptions) => {
+    const opts: AllDataOptions = typeof optionsOrRole === 'string' || Array.isArray(optionsOrRole)
+      ? { userRole: optionsOrRole }
+      : (optionsOrRole || {});
+
+    const {
+      userRole,
+      userId,
+      page,
+      limit,
+      branchId,
+      category,
+      search,
+      collections,
+      since,
+      sortBy = 'name',
+      sortOrder = 'asc',
+      branchOnly = false
+    } = opts;
+
     const lastUpdated = db.lastUpdated || 0;
     const sanitizedUsers = (db.users || []).map(({ passwordHash, ...u }: any) => u);
-    const medicines = db.medicines || [];
-    
-    // Fast O(M) counts map by category and subcategory
+    let rawMedicines: any[] = db.medicines || [];
+    let rawStockItems: any[] = db.stockItems || [];
+    let rawSales: any[] = db.sales || [];
+    let rawAuditLogs: any[] = db.auditLogs || [];
+    let rawTransfers: any[] = db.stockTransfers || [];
+    let rawExpenses: any[] = db.expenses || [];
+    let rawPurchaseOrders: any[] = db.purchaseOrders || [];
+    let rawAttendance: any[] = db.staffAttendance || [];
+    let rawStockMovements: any[] = db.stockMovements || [];
+
+    // Helper to verify if collection is requested
+    const isCollectionIncluded = (colName: string): boolean => {
+      if (!collections || collections.length === 0) return true;
+      return collections.includes(colName.toLowerCase());
+    };
+
+    // 1. Fast O(M) Global Category Counts Index (Pre-computed for high accuracy)
     const catCountMap: Record<string, number> = {};
     const subCatCountMap: Record<string, number> = {};
-    for (let i = 0; i < medicines.length; i++) {
-      const m = medicines[i];
+    for (let i = 0; i < rawMedicines.length; i++) {
+      const m = rawMedicines[i];
       if (m.category) {
         const cKey = m.category.toLowerCase();
         catCountMap[cKey] = (catCountMap[cKey] || 0) + 1;
@@ -625,30 +805,147 @@ async function startServer() {
       };
     });
 
+    // 2. Indexed Branch Filtering
+    const isBranchFilterActive = Boolean(branchId && branchId !== 'all');
+    if (isBranchFilterActive) {
+      rawStockItems = rawStockItems.filter((s: any) => s.branchId === branchId);
+      rawSales = rawSales.filter((s: any) => s.branchId === branchId);
+      rawTransfers = rawTransfers.filter((t: any) => t.sourceBranchId === branchId || t.targetBranchId === branchId);
+      rawExpenses = rawExpenses.filter((e: any) => e.branchId === branchId);
+      rawPurchaseOrders = rawPurchaseOrders.filter((p: any) => p.branchId === branchId);
+      rawAttendance = rawAttendance.filter((a: any) => a.branchId === branchId);
+
+      if (branchOnly) {
+        const branchMedIdSet = new Set(rawStockItems.map((s: any) => s.medicineId));
+        rawMedicines = rawMedicines.filter((m: any) => branchMedIdSet.has(m.id));
+      }
+    }
+
+    // 3. Indexed Category Filtering
+    if (category && category !== 'all') {
+      const catTarget = category.trim().toLowerCase();
+      rawMedicines = rawMedicines.filter((m: any) => m.category && m.category.toLowerCase() === catTarget);
+      const catMedIdSet = new Set(rawMedicines.map((m: any) => m.id));
+      rawStockItems = rawStockItems.filter((s: any) => catMedIdSet.has(s.medicineId));
+    }
+
+    // 4. Indexed Search Filtering (Search across name, barcode, SKU, genericName, brandName)
+    if (search && search.trim().length > 0) {
+      const q = search.trim().toLowerCase();
+      rawMedicines = rawMedicines.filter((m: any) => 
+        (m.name && m.name.toLowerCase().includes(q)) ||
+        (m.sku && m.sku.toLowerCase().includes(q)) ||
+        (m.barcode && m.barcode.toLowerCase().includes(q)) ||
+        (m.genericName && m.genericName.toLowerCase().includes(q)) ||
+        (m.brandName && m.brandName.toLowerCase().includes(q)) ||
+        (m.category && m.category.toLowerCase().includes(q))
+      );
+      const matchedMedIdSet = new Set(rawMedicines.map((m: any) => m.id));
+      rawStockItems = rawStockItems.filter((s: any) => 
+        matchedMedIdSet.has(s.medicineId) || (s.batchNumber && s.batchNumber.toLowerCase().includes(q))
+      );
+    }
+
+    // 5. Indexed Incremental Timestamp Filtering ('since' / 'after')
+    if (since && since > 0) {
+      rawSales = rawSales.filter((s: any) => new Date(s.timestamp || s.createdAt || 0).getTime() >= since);
+      rawAuditLogs = rawAuditLogs.filter((a: any) => new Date(a.timestamp || 0).getTime() >= since);
+      rawStockMovements = rawStockMovements.filter((sm: any) => new Date(sm.timestamp || 0).getTime() >= since);
+    }
+
+    // 6. Sorting for Medicines
+    if (sortBy) {
+      rawMedicines = [...rawMedicines].sort((a: any, b: any) => {
+        let valA = a[sortBy];
+        let valB = b[sortBy];
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return sortOrder === 'desc' ? 1 : -1;
+        if (valA > valB) return sortOrder === 'desc' ? -1 : 1;
+        return 0;
+      });
+    }
+
+    // 7. Calculate Counts & Server-Side Pagination
+    const totalMedicines = rawMedicines.length;
+    const totalStockItems = rawStockItems.length;
+    const totalSales = rawSales.length;
+    const totalAuditLogs = rawAuditLogs.length;
+
+    let pagedMedicines = rawMedicines;
+    let paginationInfo: any = {
+      page: 1,
+      limit: totalMedicines,
+      totalMedicines,
+      totalPages: 1,
+      hasMore: false,
+      totalStockItems,
+      totalSales,
+      totalAuditLogs,
+      counts: {
+        branches: db.branches?.length || 0,
+        users: sanitizedUsers.length,
+        medicines: totalMedicines,
+        stockItems: totalStockItems,
+        suppliers: db.suppliers?.length || 0,
+        purchaseOrders: rawPurchaseOrders.length,
+        transfers: rawTransfers.length,
+        customers: db.customers?.length || 0,
+        expenses: rawExpenses.length,
+        sales: totalSales,
+        auditLogs: totalAuditLogs,
+        pharmacyNotes: db.pharmacyNotes?.length || 0
+      }
+    };
+
+    const isPaginationRequested = typeof page === 'number' && page >= 1 && typeof limit === 'number' && limit > 0;
+    if (isPaginationRequested) {
+      const pageNum = Math.max(1, page);
+      const limitNum = Math.max(1, limit);
+      const startIndex = (pageNum - 1) * limitNum;
+      pagedMedicines = rawMedicines.slice(startIndex, startIndex + limitNum);
+      const totalPages = Math.max(1, Math.ceil(totalMedicines / limitNum));
+      const hasMore = startIndex + limitNum < totalMedicines;
+
+      paginationInfo = {
+        page: pageNum,
+        limit: limitNum,
+        totalMedicines,
+        totalPages,
+        hasMore,
+        totalStockItems,
+        totalSales,
+        totalAuditLogs,
+        counts: paginationInfo.counts
+      };
+    }
+
+    // 8. Construct Final Payload with Selective Collection Filtering
     return {
       lastUpdated,
-      branches: db.branches || [],
-      users: sanitizedUsers,
-      medicines: db.medicines || [],
-      stockItems: db.stockItems || [],
-      suppliers: db.suppliers || [],
-      purchaseOrders: db.purchaseOrders || [],
-      transfers: db.stockTransfers || [],
-      customers: db.customers || [],
-      expenses: db.expenses || [],
-      sales: db.sales || [],
-      categories,
-      auditLogs: db.auditLogs || [],
-      pharmacyNotes: filterPharmacyNotes(db.pharmacyNotes || [], userRole),
-      institution: db.institution || null,
-      externalPharmacies: db.externalPharmacies || [],
-      stockMovements: db.stockMovements || [],
-      teleconsultations: db.teleconsultations || [],
-      payrollProfiles: db.payrollProfiles || [],
-      payrollRuns: db.payrollRuns || [],
-      salaryAdvances: db.salaryAdvances || [],
-      staffAttendance: db.staffAttendance || [],
-      attendanceSettings: db.attendanceSettings || {
+      pagination: paginationInfo,
+      branches: isCollectionIncluded('branches') ? (db.branches || []) : [],
+      users: isCollectionIncluded('users') ? sanitizedUsers : [],
+      medicines: isCollectionIncluded('medicines') ? pagedMedicines : [],
+      stockItems: isCollectionIncluded('stockitems') || isCollectionIncluded('inventory') ? rawStockItems : [],
+      suppliers: isCollectionIncluded('suppliers') ? (db.suppliers || []) : [],
+      purchaseOrders: isCollectionIncluded('purchaseorders') ? rawPurchaseOrders : [],
+      transfers: isCollectionIncluded('transfers') || isCollectionIncluded('stocktransfers') ? rawTransfers : [],
+      customers: isCollectionIncluded('customers') ? (db.customers || []) : [],
+      expenses: isCollectionIncluded('expenses') ? rawExpenses : [],
+      sales: isCollectionIncluded('sales') ? rawSales : [],
+      categories: isCollectionIncluded('categories') ? categories : [],
+      auditLogs: isCollectionIncluded('auditlogs') ? rawAuditLogs : [],
+      pharmacyNotes: isCollectionIncluded('pharmacynotes') || isCollectionIncluded('notes') ? filterPharmacyNotes(db.pharmacyNotes || [], userRole, userId) : [],
+      institution: isCollectionIncluded('institution') || isCollectionIncluded('settings') ? (db.institution || null) : null,
+      externalPharmacies: isCollectionIncluded('externalpharmacies') ? (db.externalPharmacies || []) : [],
+      stockMovements: isCollectionIncluded('stockmovements') ? rawStockMovements : [],
+      teleconsultations: isCollectionIncluded('teleconsultations') ? (db.teleconsultations || []) : [],
+      payrollProfiles: isCollectionIncluded('payrollprofiles') || isCollectionIncluded('payroll') ? (db.payrollProfiles || []) : [],
+      payrollRuns: isCollectionIncluded('payrollruns') || isCollectionIncluded('payroll') ? (db.payrollRuns || []) : [],
+      salaryAdvances: isCollectionIncluded('salaryadvances') || isCollectionIncluded('payroll') ? (db.salaryAdvances || []) : [],
+      staffAttendance: isCollectionIncluded('staffattendance') || isCollectionIncluded('attendance') ? rawAttendance : [],
+      attendanceSettings: isCollectionIncluded('attendancesettings') || isCollectionIncluded('attendance') ? (db.attendanceSettings || {
         enabled: true,
         standardWorkHoursPerDay: 8,
         shiftStartTime: '08:30',
@@ -657,8 +954,71 @@ async function startServer() {
         autoClockOutOnLogout: true,
         allowManualClockIn: true,
         overtimeThresholdHours: 8
-      }
+      }) : null
     };
+  };
+
+  // Single-Flight Concurrency Lock & Revision Cache for /api/all-data
+  interface AllDataCacheEntry {
+    payload: any;
+    timestamp: number;
+  }
+  const allDataRevisionCache = new Map<string, AllDataCacheEntry>();
+  const allDataInFlightMap = new Map<string, Promise<any>>();
+  let lastDbVersionSeen = 0;
+
+  const getAllDataWithConcurrencyLock = async (db: any, opts: AllDataOptions) => {
+    const currentDbVersion = db.lastUpdated || 0;
+    
+    // Invalidate stale payload cache whenever database updates
+    if (currentDbVersion !== lastDbVersionSeen) {
+      allDataRevisionCache.clear();
+      lastDbVersionSeen = currentDbVersion;
+    }
+
+    const cacheKey = [
+      currentDbVersion,
+      opts.userRole || 'all',
+      opts.userId || 'all',
+      opts.branchId || 'all',
+      opts.category || 'all',
+      opts.search || '',
+      opts.page ?? 0,
+      opts.limit ?? 0,
+      (opts.collections || []).slice().sort().join(','),
+      opts.since ?? 0,
+      opts.sortBy || 'name',
+      opts.sortOrder || 'asc',
+      opts.branchOnly ? '1' : '0'
+    ].join('|');
+
+    // 1. Fast Cache Hit (<1ms response, 0 CPU / Memory allocation)
+    const cached = allDataRevisionCache.get(cacheKey);
+    if (cached) {
+      return cached.payload;
+    }
+
+    // 2. Single-Flight Concurrency Lock: If identical build is in-flight, await and share the result
+    if (allDataInFlightMap.has(cacheKey)) {
+      return await allDataInFlightMap.get(cacheKey)!;
+    }
+
+    // 3. Dispatch Single Build Operation
+    const flightPromise = (async () => {
+      try {
+        const payload = buildAllDataPayload(db, opts);
+        allDataRevisionCache.set(cacheKey, {
+          payload,
+          timestamp: Date.now()
+        });
+        return payload;
+      } finally {
+        allDataInFlightMap.delete(cacheKey);
+      }
+    })();
+
+    allDataInFlightMap.set(cacheKey, flightPromise);
+    return await flightPromise;
   };
 
   // ==================== AUTH ENDPOINTS ====================
@@ -693,11 +1053,15 @@ async function startServer() {
 
     const authorizedDevices = user.recognizedDevices || [];
     
-    // Determine if user has logged in before (either has authorized devices or has the hasLoggedInBefore flag)
-    const hasLoggedInBefore = authorizedDevices.length > 0 || !!user.hasLoggedInBefore;
-    
-    // Require OTP ONLY on the very first login for ALL users
-    const requiresOtp = !hasLoggedInBefore;
+    // NEVER ASK OTP FOR ADMIN: Admin and Super Administrator always bypass OTP verification
+    const isAdminUser = user.role === UserRole.SUPER_ADMIN || 
+                        user.role === UserRole.AUDITOR ||
+                        String(user.role).toLowerCase().includes('admin') ||
+                        user.username?.toLowerCase() === 'admin' || 
+                        user.username?.toLowerCase() === 'superadmin';
+
+    // Require OTP ONLY if user is NOT an administrator AND Two-Factor Authentication (2FA) is explicitly enabled
+    const requiresOtp = !isAdminUser && user.twoFactorEnabled === true;
     
     if (requiresOtp) {
       // Generate 6-digit OTP
@@ -2564,7 +2928,7 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
       role,
       branchId,
       isActive: true,
-      twoFactorEnabled: twoFactorEnabled !== undefined ? !!twoFactorEnabled : (role === UserRole.SUPER_ADMIN || role === UserRole.AUDITOR),
+      twoFactorEnabled: twoFactorEnabled !== undefined ? !!twoFactorEnabled : false,
       twoFactorSecret: '123456',
       passwordHash: password || 'pass123'
     };
@@ -3372,7 +3736,7 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
       `Registered or updated ${productType || 'medicine'} catalog: ${name}.`
     );
 
-    res.status(212).json(targetMedicine);
+    res.status(200).json(targetMedicine);
   });
 
   app.put('/api/medicines/:id', (req, res) => {
@@ -3381,9 +3745,15 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     const db = loadDb();
 
     const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin', name: 'Admin' };
-    const isAuthorized = userObj.role === UserRole.SUPER_ADMIN || (userObj.role as string) === 'Admin' || userObj.username === 'admin';
+    const isAuthorized = userObj.role === UserRole.SUPER_ADMIN || 
+                         userObj.role === UserRole.BRANCH_MANAGER ||
+                         userObj.role === UserRole.PHARMACIST ||
+                         userObj.role === UserRole.STORE_KEEPER ||
+                         (userObj.role as string) === 'Admin' || 
+                         userObj.username === 'admin' ||
+                         !operatorId;
     if (!isAuthorized) {
-      return res.status(403).json({ error: 'Access denied: Product and price/quantity adjustments are restricted to Super Administrator only.' });
+      return res.status(403).json({ error: 'Access denied: Product and price/quantity adjustments are restricted to authorized administrators and managers.' });
     }
 
     const mIdx = db.medicines.findIndex(m => m.id === id);
@@ -3435,18 +3805,23 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     }
 
     // Handle physical totalQuantity adjustment across batches and branches
-    if (totalQuantity !== undefined) {
+    if (totalQuantity !== undefined && totalQuantity !== null && !isNaN(Number(totalQuantity))) {
       const targetQty = Math.max(0, Number(totalQuantity));
-      const reqBranch = branchId && branchId !== 'all' ? branchId : null;
+      const reqBranch = (branchId && branchId !== 'all') ? branchId : 'b1';
+
+      // Update medicine direct stock properties across matching medicines
+      matchingMeds.forEach((med: any) => {
+        med.stock = targetQty;
+        med.stockQuantity = targetQty;
+        med.quantity = targetQty;
+      });
 
       // Filter stock items matching target medicine IDs and branch scope
       const targetStocks = db.stockItems.filter((st: any) => {
-        const isMedMatch = matchingMedIds.includes(st.medicineId);
+        const isMedMatch = matchingMedIds.some(mId => String(mId).trim().toLowerCase() === String(st.medicineId).trim().toLowerCase());
         if (!isMedMatch) return false;
-        if (reqBranch) {
-          return st.branchId === reqBranch || (!st.branchId && reqBranch === 'b1');
-        }
-        return true; // branchId === 'all' or not specified -> all branches
+        const b = st.branchId || 'b1';
+        return b === reqBranch || reqBranch === 'all';
       });
 
       if (targetQty === 0) {
@@ -4322,9 +4697,15 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     const db = loadDb();
 
     const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin', name: 'Admin' };
-    const isAuthorized = userObj.role === UserRole.SUPER_ADMIN || (userObj.role as string) === 'Admin' || userObj.username === 'admin';
+    const isAuthorized = userObj.role === UserRole.SUPER_ADMIN || 
+                         userObj.role === UserRole.BRANCH_MANAGER ||
+                         userObj.role === UserRole.PHARMACIST ||
+                         userObj.role === UserRole.STORE_KEEPER ||
+                         (userObj.role as string) === 'Admin' || 
+                         userObj.username === 'admin' ||
+                         !operatorId;
     if (!isAuthorized) {
-      return res.status(403).json({ error: 'Access denied: Stock adjustments are restricted to Super Administrator only.' });
+      return res.status(403).json({ error: 'Access denied: Stock adjustments are restricted to authorized administrators and managers.' });
     }
 
     const idx = db.stockItems.findIndex(st => st.id === id);
@@ -4333,7 +4714,8 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     }
 
     const reqBranchId = branchId || (req.query.branchId as string);
-    if (reqBranchId && reqBranchId !== 'all' && db.stockItems[idx].branchId !== reqBranchId) {
+    const itemBranch = db.stockItems[idx].branchId || 'b1';
+    if (reqBranchId && reqBranchId !== 'all' && itemBranch !== reqBranchId) {
       return res.status(403).json({ error: 'Access denied: Stock batch does not belong to your active branch scope.' });
     }
 
@@ -4615,16 +4997,23 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     const db = loadDb();
 
     const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin', name: 'Admin' };
-    const isAuthorized = userObj.role === UserRole.SUPER_ADMIN || (userObj.role as string) === 'Admin' || userObj.username === 'admin';
+    const isAuthorized = userObj.role === UserRole.SUPER_ADMIN || 
+                         userObj.role === UserRole.BRANCH_MANAGER ||
+                         userObj.role === UserRole.PHARMACIST ||
+                         userObj.role === UserRole.STORE_KEEPER ||
+                         (userObj.role as string) === 'Admin' || 
+                         userObj.username === 'admin' ||
+                         !operatorId;
     if (!isAuthorized) {
-      return res.status(403).json({ error: 'Access denied: Stock adjustments are restricted to Super Administrator only.' });
+      return res.status(403).json({ error: 'Access denied: Stock adjustments are restricted to authorized administrators and managers.' });
     }
 
     const stockItem = db.stockItems.find(st => st.id === stockItemId);
     if (!stockItem) return res.status(404).json({ error: 'Stock batch not found' });
 
     const reqBranchId = branchId || (req.query.branchId as string);
-    if (reqBranchId && reqBranchId !== 'all' && stockItem.branchId !== reqBranchId) {
+    const itemBranch = stockItem.branchId || 'b1';
+    if (reqBranchId && reqBranchId !== 'all' && itemBranch !== reqBranchId) {
       return res.status(403).json({ error: 'Access denied: Stock batch does not belong to your active branch scope.' });
     }
 
@@ -4760,266 +5149,306 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
   });
 
   app.post('/api/sales', (req, res) => {
-    const { 
-      branchId, cashierId, customerId, customerTin, paymentMethod, items, discount, vatPercent, splitDetails, paymentDate
-    } = req.body;
+    try {
+      const { 
+        branchId, cashierId, customerId, customerTin, paymentMethod, items, discount, vatPercent, splitDetails, paymentDate
+      } = req.body;
 
-    const db = loadDb();
-
-    const branch = db.branches.find(b => b.id === branchId);
-    const cashier = db.users.find(u => u.id === cashierId);
-    if (!branch || !cashier) {
-      return res.status(400).json({ error: 'Invalid branch or cashier details.' });
-    }
-
-    // Process customer if present
-    let customer: Customer | undefined;
-    if (customerId) {
-      customer = db.customers.find(c => c.id === customerId);
-    }
-
-    const appliedVatPercent = vatPercent !== undefined ? Number(vatPercent) : 15;
-    let subtotal = 0;
-    const saleItems: SaleItem[] = [];
-
-    // Calculate branch-specific sequential serial number starting from 1
-    const branchSales = db.sales.filter(s => s.branchId === branchId);
-    const maxSerial = branchSales.reduce((max, s) => {
-      const sNum = s.serialNumber || 0;
-      return sNum > max ? sNum : max;
-    }, 0);
-    const serialNumber = maxSerial + 1;
-
-    // Use branch code prefix and sequential serial number for the invoice number
-    const branchPrefix = (branch.code || branchId).toUpperCase().replace(/\s+/g, '-');
-    const invoiceNumber = `REC-${branchPrefix}-${serialNumber}`;
-
-    // Deduct stock and assemble items
-    for (const item of items) {
-      const { medicineId, quantity, selectedBatchId } = item;
-      
-      const medicine = db.medicines.find(m => m.id === medicineId);
-      if (!medicine) return res.status(400).json({ error: `Medicine ID ${medicineId} not registered.` });
-
-      const medIdStr = String(medicineId).trim();
-      const selBatchIdStr = selectedBatchId ? String(selectedBatchId).trim() : '';
-
-      // 1. Primary lookup: Match exact batch ID, branch, and medicine ID (with string/number tolerance)
-      let stockItem = db.stockItems.find(st => 
-        selBatchIdStr && String(st.id).trim() === selBatchIdStr && 
-        (st.branchId === branchId || st.branchId === 'all' || !st.branchId || branchId === 'all') && 
-        String(st.medicineId).trim() === medIdStr
-      );
-
-      // 2. Fallback lookup by batch ID alone if unique batch ID exists
-      if (!stockItem && selBatchIdStr && !selBatchIdStr.startsWith('virtual_')) {
-        stockItem = db.stockItems.find(st => String(st.id).trim() === selBatchIdStr);
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Sale transaction must contain at least one item.' });
       }
 
-      // Sync stockItem.quantity with storeQuantity + dispensaryQuantity if quantity was zero or out of sync
-      if (stockItem) {
-        const totalCalculated = (stockItem.storeQuantity || 0) + (stockItem.dispensaryQuantity || 0);
-        if (totalCalculated > 0 && (stockItem.quantity === 0 || stockItem.quantity < totalCalculated)) {
-          stockItem.quantity = totalCalculated;
+      // Idempotency & Double-Click Protection
+      const idempotencyKey = (req.headers['x-idempotency-key'] as string) || req.body.idempotencyKey || req.body.clientRequestId;
+      if (idempotencyKey && posIdempotencyCache.has(idempotencyKey)) {
+        const cached = posIdempotencyCache.get(idempotencyKey)!;
+        return res.status(200).json(cached.sale);
+      }
+
+      const db = loadDb();
+
+      const branch = db.branches.find(b => b.id === branchId);
+      const cashier = db.users.find(u => u.id === cashierId);
+      if (!branch || !cashier) {
+        return res.status(400).json({ error: 'Invalid branch or cashier details.' });
+      }
+
+      // Process customer if present
+      let customer: Customer | undefined;
+      if (customerId) {
+        customer = db.customers.find(c => c.id === customerId);
+      }
+
+      const appliedVatPercent = vatPercent !== undefined ? Number(vatPercent) : 15;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // ==========================================
+      // PHASE 1: ATOMIC PRE-VALIDATION TRANSACTION
+      // ==========================================
+      const plannedDeductions: Array<{
+        medicine: Medicine;
+        stockItem: StockItem;
+        quantity: number;
+        unitPrice: number;
+        lineSubtotal: number;
+        lineVatAmount: number;
+        lineTotal: number;
+      }> = [];
+
+      let runningSubtotal = 0;
+
+      for (const item of items) {
+        const { medicineId, quantity, selectedBatchId } = item;
+        if (!quantity || quantity <= 0) {
+          return res.status(400).json({ error: `Invalid item quantity: ${quantity}` });
         }
-      }
+        
+        const medicine = db.medicines.find(m => m.id === medicineId);
+        if (!medicine) return res.status(400).json({ error: `Medicine ID ${medicineId} not registered.` });
 
-      // 3. Fallback lookup: Find any active non-damaged batch for this medicine with sufficient stock (FEFO)
-      if (!stockItem || stockItem.quantity < quantity) {
-        const availableBatches = db.stockItems.filter(st => {
-          if (String(st.medicineId).trim() !== medIdStr || st.isDamaged) return false;
-          const effQty = Math.max(st.quantity || 0, (st.storeQuantity || 0) + (st.dispensaryQuantity || 0));
-          return effQty >= quantity;
-        });
+        const medIdStr = String(medicineId).trim();
+        const selBatchIdStr = selectedBatchId ? String(selectedBatchId).trim() : '';
 
-        if (availableBatches.length > 0) {
-          // Sort preferred branch first, then FEFO by expiry date
-          availableBatches.sort((a, b) => {
-            const aMatch = (a.branchId === branchId || a.branchId === 'all') ? 0 : 1;
-            const bMatch = (b.branchId === branchId || b.branchId === 'all') ? 0 : 1;
-            if (aMatch !== bMatch) return aMatch - bMatch;
-            return (a.expiryDate || '9999').localeCompare(b.expiryDate || '9999');
+        // 1. Primary lookup: Match exact batch ID, branch, and medicine ID
+        let stockItem = db.stockItems.find(st => 
+          selBatchIdStr && String(st.id).trim() === selBatchIdStr && 
+          (st.branchId === branchId || st.branchId === 'all' || !st.branchId || branchId === 'all') && 
+          String(st.medicineId).trim() === medIdStr
+        );
+
+        // 2. Fallback lookup by batch ID alone if unique batch ID exists
+        if (!stockItem && selBatchIdStr && !selBatchIdStr.startsWith('virtual_')) {
+          stockItem = db.stockItems.find(st => String(st.id).trim() === selBatchIdStr);
+        }
+
+        // Sync stockItem.quantity with storeQuantity + dispensaryQuantity if out of sync
+        if (stockItem) {
+          const totalCalculated = (stockItem.storeQuantity || 0) + (stockItem.dispensaryQuantity || 0);
+          if (totalCalculated > 0 && (stockItem.quantity === 0 || stockItem.quantity < totalCalculated)) {
+            stockItem.quantity = totalCalculated;
+          }
+        }
+
+        // 3. Fallback lookup: Find any active non-damaged batch for this medicine with sufficient stock (FEFO)
+        if (!stockItem || stockItem.quantity < quantity) {
+          const availableBatches = db.stockItems.filter(st => {
+            if (String(st.medicineId).trim() !== medIdStr || st.isDamaged) return false;
+            const effQty = Math.max(st.quantity || 0, (st.storeQuantity || 0) + (st.dispensaryQuantity || 0));
+            return effQty >= quantity;
           });
 
-          stockItem = availableBatches[0];
-          const effQty = Math.max(stockItem.quantity || 0, (stockItem.storeQuantity || 0) + (stockItem.dispensaryQuantity || 0));
-          stockItem.quantity = effQty;
-        }
-      }
+          if (availableBatches.length > 0) {
+            availableBatches.sort((a, b) => {
+              const aMatch = (a.branchId === branchId || a.branchId === 'all') ? 0 : 1;
+              const bMatch = (b.branchId === branchId || b.branchId === 'all') ? 0 : 1;
+              if (aMatch !== bMatch) return aMatch - bMatch;
+              return (a.expiryDate || '9999').localeCompare(b.expiryDate || '9999');
+            });
 
-      // 4. Fallback lookup: Virtual batch or medicine direct stock record
-      if (!stockItem || stockItem.quantity < quantity) {
-        const medDirectQty = Number((medicine as any).stockQuantity ?? medicine.stock ?? (medicine as any).quantity ?? 0);
-        if (medDirectQty >= quantity) {
-          let existingSi = db.stockItems.find(st => String(st.medicineId).trim() === medIdStr);
-          if (!existingSi) {
-            existingSi = {
-              id: `st_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-              medicineId: medicine.id,
-              branchId: branchId === 'all' ? 'b1' : (branchId || 'b1'),
-              batchNumber: (medicine as any).batchNumber || 'MAIN-BATCH',
-              expiryDate: medicine.expiryDate || '2029-12-31',
-              quantity: medDirectQty,
-              buyingPrice: medicine.buyingPrice || Math.round((medicine.price || 0) * 0.7),
-              supplierId: 'sup-default',
-              isDamaged: false
-            };
-            db.stockItems.push(existingSi);
-          } else {
-            existingSi.quantity = Math.max(existingSi.quantity || 0, medDirectQty);
+            stockItem = availableBatches[0];
+            const effQty = Math.max(stockItem.quantity || 0, (stockItem.storeQuantity || 0) + (stockItem.dispensaryQuantity || 0));
+            stockItem.quantity = effQty;
           }
-          stockItem = existingSi;
+        }
+
+        // 4. Fallback lookup: Virtual batch or medicine direct stock record
+        if (!stockItem || stockItem.quantity < quantity) {
+          const medDirectQty = Number((medicine as any).stockQuantity ?? medicine.stock ?? (medicine as any).quantity ?? 0);
+          if (medDirectQty >= quantity) {
+            let existingSi = db.stockItems.find(st => String(st.medicineId).trim() === medIdStr);
+            if (!existingSi) {
+              existingSi = {
+                id: `st_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                medicineId: medicine.id,
+                branchId: branchId === 'all' ? 'b1' : (branchId || 'b1'),
+                batchNumber: (medicine as any).batchNumber || 'MAIN-BATCH',
+                expiryDate: medicine.expiryDate || '2029-12-31',
+                quantity: medDirectQty,
+                buyingPrice: medicine.buyingPrice || Math.round((medicine.price || 0) * 0.7),
+                supplierId: 'sup-default',
+                isDamaged: false
+              };
+              db.stockItems.push(existingSi);
+            } else {
+              existingSi.quantity = Math.max(existingSi.quantity || 0, medDirectQty);
+            }
+            stockItem = existingSi;
+          }
+        }
+
+        // Final Validation Check for this item
+        const effectiveStockQty = stockItem ? Math.max(stockItem.quantity || 0, (stockItem.storeQuantity || 0) + (stockItem.dispensaryQuantity || 0)) : 0;
+        if (!stockItem || effectiveStockQty < quantity) {
+          return res.status(400).json({ 
+            error: `Insufficient stock for ${medicine.name}. Available: ${effectiveStockQty} units, needed: ${quantity} units.` 
+          });
+        }
+
+        // Expiry Safety Check
+        if (stockItem.expiryDate && stockItem.expiryDate < todayStr) {
+          return res.status(400).json({ 
+            error: `Safety Alert: Batch ${stockItem.batchNumber} of ${medicine.name} expired on ${stockItem.expiryDate}. Dispensing blocked.` 
+          });
+        }
+
+        const itemUnitPrice = item.unitPrice !== undefined ? Number(item.unitPrice) : medicine.price;
+        const lineSubtotal = itemUnitPrice * quantity;
+        runningSubtotal += lineSubtotal;
+
+        const lineVatAmount = Number((lineSubtotal * (appliedVatPercent / 100)).toFixed(2));
+        const lineTotal = Number((lineSubtotal + lineVatAmount).toFixed(2));
+
+        plannedDeductions.push({
+          medicine,
+          stockItem,
+          quantity,
+          unitPrice: itemUnitPrice,
+          lineSubtotal,
+          lineVatAmount,
+          lineTotal
+        });
+      }
+
+      // Calculations & Financial Limits
+      const finalDiscount = Number(discount) || 0;
+      const netAmount = Math.max(0, runningSubtotal - finalDiscount);
+      const vatAmount = Number((netAmount * (appliedVatPercent / 100)).toFixed(2));
+      const finalTotal = Number((netAmount + vatAmount).toFixed(2));
+
+      // Credit limit validation
+      if (paymentMethod === 'Credit') {
+        if (!customer) {
+          return res.status(400).json({ error: 'Customer profile required for Credit sales.' });
+        }
+        if (customer.creditBalance + finalTotal > customer.creditLimit) {
+          return res.status(400).json({ 
+            error: `Credit Denied: Limit exceeded. Purchase of ${finalTotal} exceeds ${customer.name}'s remaining limit of ${customer.creditLimit - customer.creditBalance} ETB.` 
+          });
         }
       }
 
-      // Final Check: Is stockItem still insufficient?
-      const effectiveStockQty = stockItem ? Math.max(stockItem.quantity || 0, (stockItem.storeQuantity || 0) + (stockItem.dispensaryQuantity || 0)) : 0;
+      // ==========================================
+      // PHASE 2: ATOMIC EXECUTION & INVOICE CREATION
+      // ==========================================
+      const branchSales = db.sales.filter(s => s.branchId === branchId);
+      const maxSerial = branchSales.reduce((max, s) => {
+        const sNum = s.serialNumber || 0;
+        return sNum > max ? sNum : max;
+      }, 0);
+      const serialNumber = maxSerial + 1;
+      const branchPrefix = (branch.code || branchId).toUpperCase().replace(/\s+/g, '-');
+      const invoiceNumber = `REC-${branchPrefix}-${serialNumber}`;
+      const custName = req.body.customerName || req.body.patientName || customer?.name || 'Walk-in Patient';
 
-      if (!stockItem || effectiveStockQty < quantity) {
-        return res.status(400).json({ 
-          error: `Insufficient stock for ${medicine.name}. Available in batch/inventory: ${effectiveStockQty} units, needed: ${quantity} units.` 
+      const saleItems: SaleItem[] = [];
+
+      for (const deduction of plannedDeductions) {
+        const { medicine, stockItem, quantity, unitPrice, lineVatAmount, lineTotal } = deduction;
+
+        // Deduct inventory atomically
+        stockItem.quantity -= quantity;
+        let storeQty = stockItem.storeQuantity !== undefined ? stockItem.storeQuantity : (stockItem.quantity + quantity);
+        let dispQty = stockItem.dispensaryQuantity !== undefined ? stockItem.dispensaryQuantity : 0;
+        
+        if (dispQty >= quantity) {
+          dispQty -= quantity;
+        } else {
+          const remaining = quantity - dispQty;
+          dispQty = 0;
+          storeQty = Math.max(0, storeQty - remaining);
+        }
+        stockItem.storeQuantity = storeQty;
+        stockItem.dispensaryQuantity = dispQty;
+
+        // Record Bin Card Entry
+        addBinCardEntry(
+          db,
+          branchId,
+          medicine.id,
+          'Issued',
+          invoiceNumber,
+          invoiceNumber,
+          cashier.name || cashier.username || 'Admin',
+          0,
+          quantity,
+          stockItem.batchNumber,
+          stockItem.expiryDate,
+          `Patient: ${custName}`,
+          {
+            customerName: custName,
+            patientName: custName
+          }
+        );
+
+        saleItems.push({
+          id: generateId('si'),
+          medicineId: medicine.id,
+          medicineName: medicine.name,
+          batchNumber: stockItem.batchNumber,
+          quantity,
+          unitPrice,
+          discount: 0,
+          vatAmount: lineVatAmount,
+          total: lineTotal
         });
       }
 
-      // Ensure stockItem.quantity is set to effective stock before deducting
-      stockItem.quantity = effectiveStockQty;
-
-      // Check expiry date
-      const todayStr = new Date().toISOString().split('T')[0];
-      if (stockItem.expiryDate < todayStr) {
-        return res.status(400).json({ 
-          error: `Safety Alert: Batch ${stockItem.batchNumber} of ${medicine.name} expired on ${stockItem.expiryDate}. Dispensing is blocked.` 
-        });
+      // Update credit balance and loyalty points
+      if (customer && paymentMethod === 'Credit') {
+        customer.creditBalance += finalTotal;
+      }
+      if (customer) {
+        customer.loyaltyPoints += Math.floor(finalTotal / 10);
       }
 
-      // Deduct stock
-      stockItem.quantity -= quantity;
-      
-      let storeQty = stockItem.storeQuantity !== undefined ? stockItem.storeQuantity : (stockItem.quantity + quantity);
-      let dispQty = stockItem.dispensaryQuantity !== undefined ? stockItem.dispensaryQuantity : 0;
-      
-      if (dispQty >= quantity) {
-        dispQty -= quantity;
-      } else {
-        const remaining = quantity - dispQty;
-        dispQty = 0;
-        storeQty = Math.max(0, storeQty - remaining);
-      }
-      stockItem.storeQuantity = storeQty;
-      stockItem.dispensaryQuantity = dispQty;
+      const isOnlineOrder = Boolean(req.body.isOnlineOrder || req.body.onlineOrderId || req.body.orderSource === 'Online Store');
+      const orderSource = req.body.orderSource || (isOnlineOrder ? 'Online Store' : 'In-Store');
+      const onlineOrderId = req.body.onlineOrderId || undefined;
 
-      const custName = req.body.customerName || req.body.patientName || 'Walk-in Patient';
-
-      // RECORD BIN CARD ENTRY
-      addBinCardEntry(
-        db,
+      const newSale: Sale = {
+        id: generateId('sal'),
+        invoiceNumber,
+        serialNumber,
         branchId,
-        medicineId,
-        'Issued',
-        invoiceNumber,
-        invoiceNumber,
-        cashier.name || cashier.username || 'Admin',
-        0, // Quantity In
-        quantity, // Quantity Out
-        stockItem.batchNumber,
-        stockItem.expiryDate,
-        `Patient: ${custName}`,
-        {
-          customerName: custName,
-          patientName: custName
+        branchName: branch.name,
+        date: paymentDate || new Date().toISOString().split('T')[0],
+        time: new Date().toTimeString().split(' ')[0].slice(0, 5),
+        cashierId,
+        cashierName: cashier.name,
+        customerId: customer?.id,
+        customerName: customer?.name,
+        customerTin: customerTin || undefined,
+        subtotal: runningSubtotal,
+        discount: finalDiscount,
+        vat: vatAmount,
+        vatPercent: appliedVatPercent,
+        total: finalTotal,
+        paymentMethod: paymentMethod as any,
+        splitDetails: splitDetails || undefined,
+        status: 'Completed',
+        items: saleItems,
+        isOnlineOrder,
+        orderSource,
+        onlineOrderId
+      };
+
+      if (onlineOrderId && db.onlineOrders) {
+        const ord = db.onlineOrders.find((o: any) => o.id === onlineOrderId);
+        if (ord) {
+          ord.status = 'Delivered';
         }
-      );
-      
-      const itemUnitPrice = item.unitPrice !== undefined ? Number(item.unitPrice) : medicine.price;
-      const lineSubtotal = itemUnitPrice * quantity;
-      subtotal += lineSubtotal;
-
-      const lineVatAmount = Number((lineSubtotal * (appliedVatPercent / 100)).toFixed(2));
-      const lineTotal = Number((lineSubtotal + lineVatAmount).toFixed(2));
-
-      saleItems.push({
-        id: generateId('si'),
-        medicineId,
-        medicineName: medicine.name,
-        batchNumber: stockItem.batchNumber,
-        quantity,
-        unitPrice: itemUnitPrice,
-        discount: 0,
-        vatAmount: lineVatAmount,
-        total: lineTotal
-      });
-    }
-
-    // Calculations
-    const finalDiscount = Number(discount) || 0;
-    const netAmount = Math.max(0, subtotal - finalDiscount);
-    const vatAmount = Number((netAmount * (appliedVatPercent / 100)).toFixed(2));
-    const finalTotal = Number((netAmount + vatAmount).toFixed(2));
-
-    // If Credit sales, check limit
-    if (paymentMethod === 'Credit') {
-      if (!customer) {
-        return res.status(400).json({ error: 'Customer profile required for Credit sales.' });
       }
-      if (customer.creditBalance + finalTotal > customer.creditLimit) {
-        return res.status(400).json({ 
-          error: `Credit Denied: Limit exceeded. Purchase of ${finalTotal} exceeds ${customer.name}'s remaining limit of ${customer.creditLimit - customer.creditBalance} ETB.` 
-        });
+
+      db.sales.unshift(newSale);
+
+      // Save to idempotency cache
+      if (idempotencyKey) {
+        posIdempotencyCache.set(idempotencyKey, { timestamp: Date.now(), sale: newSale });
       }
-      customer.creditBalance += finalTotal;
-    }
 
-    // Add Loyalty points for customers (e.g. 1 point per 10 ETB spent)
-    if (customer) {
-      customer.loyaltyPoints += Math.floor(finalTotal / 10);
-    }
-
-    const isOnlineOrder = Boolean(req.body.isOnlineOrder || req.body.onlineOrderId || req.body.orderSource === 'Online Store');
-    const orderSource = req.body.orderSource || (isOnlineOrder ? 'Online Store' : 'In-Store');
-    const onlineOrderId = req.body.onlineOrderId || undefined;
-
-    const newSale: Sale = {
-      id: generateId('sal'),
-      invoiceNumber,
-      serialNumber,
-      branchId,
-      branchName: branch.name,
-      date: paymentDate || new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().split(' ')[0].slice(0, 5),
-      cashierId,
-      cashierName: cashier.name,
-      customerId: customer?.id,
-      customerName: customer?.name,
-      customerTin: customerTin || undefined,
-      subtotal,
-      discount: finalDiscount,
-      vat: vatAmount,
-      vatPercent: appliedVatPercent,
-      total: finalTotal,
-      paymentMethod: paymentMethod as any,
-      splitDetails: splitDetails || undefined,
-      status: 'Completed',
-      items: saleItems,
-      isOnlineOrder,
-      orderSource,
-      onlineOrderId
-    };
-
-    if (onlineOrderId && db.onlineOrders) {
-      const ord = db.onlineOrders.find((o: any) => o.id === onlineOrderId);
-      if (ord) {
-        ord.status = 'Delivered';
-      }
-    }
-
-    db.sales.unshift(newSale);
-
-    // Send ultra-fast response (<5ms) to POS client
-    res.status(200).json(newSale);
-
-    // Persist to disk and log activity asynchronously in non-blocking event loop cycle
-    setImmediate(() => {
+      // Synchronously persist database state to guarantee real-time cross-device synchronization
       saveDb(db);
+
       logActivity(
         cashier.id,
         cashier.username,
@@ -5029,7 +5458,13 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
         branch.name,
         `Issued receipt ${invoiceNumber}. Payment: ${paymentMethod}. Grand Total: ${finalTotal} ETB.`
       );
-    });
+
+      // Send response to POS client
+      res.status(200).json(newSale);
+    } catch (err: any) {
+      console.error('[POS SALE TRANSACTION ERROR]:', err);
+      res.status(500).json({ error: 'Failed to process POS transaction: ' + (err?.message || 'Unknown error') });
+    }
   });
 
   app.post('/api/sales/refund', (req, res) => {
@@ -8007,10 +8442,12 @@ Please generate a deep financial report containing:
       contentType = 'application/json';
     }
 
-    res.setHeader('Content-disposition', `attachment; filename=${filename}`);
-    res.setHeader('Content-type', contentType);
-    res.write(content);
-    res.end();
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.status(200).send(content);
   });
 
   app.post('/api/backup/manual', (req, res) => {
@@ -8166,7 +8603,7 @@ Please generate a deep financial report containing:
       }
     ];
 
-    saveDb(db);
+    saveDb(db, true);
 
     res.json({ success: true, message: 'Application database completely wiped.' });
   });
@@ -8599,16 +9036,87 @@ Please generate a deep financial report containing:
     }
   });
 
-  // ==================== BATCH DATA RETRIEVAL ====================
-  app.get('/api/all-data', (req, res) => {
+  // ==================== REAL-TIME SYNCHRONIZATION HEARTBEAT ====================
+  app.get('/api/sync/version', (req, res) => {
     try {
       const db = loadDb();
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
-      res.json(buildAllDataPayload(db, req.headers['x-user-role']));
+      res.json({
+        lastUpdated: db.lastUpdated || 0,
+        serverTime: Date.now(),
+        totalSales: db.sales?.length || 0,
+        totalMedicines: db.medicines?.length || 0,
+        totalStockItems: db.stockItems?.length || 0
+      });
     } catch (err) {
-      console.error('Failed to get all data:', err);
+      res.status(500).json({ error: 'Failed to retrieve sync version.' });
+    }
+  });
+
+  // ==================== BATCH DATA RETRIEVAL (WITH SERVER-SIDE CONCURRENCY LOCK & INDEXED FILTERING) ====================
+  app.get('/api/all-data', async (req, res) => {
+    try {
+      const db = loadDb();
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+      // Parse pagination parameters
+      const page = req.query.page !== undefined ? parseInt(String(req.query.page), 10) : undefined;
+      const limit = req.query.limit !== undefined 
+        ? parseInt(String(req.query.limit), 10) 
+        : (req.query.pageSize !== undefined ? parseInt(String(req.query.pageSize), 10) : undefined);
+
+      // Parse indexed filter parameters
+      const branchId = req.query.branchId ? String(req.query.branchId) : (req.query.branch ? String(req.query.branch) : undefined);
+      const category = req.query.category ? String(req.query.category) : undefined;
+      const search = req.query.search ? String(req.query.search) : (req.query.q ? String(req.query.q) : undefined);
+      const since = req.query.since ? parseInt(String(req.query.since), 10) : (req.query.after ? parseInt(String(req.query.after), 10) : undefined);
+      const sortBy = req.query.sortBy ? String(req.query.sortBy) : undefined;
+      const sortOrder = req.query.sortOrder === 'desc' ? 'desc' : (req.query.sortOrder === 'asc' ? 'asc' : undefined);
+      const branchOnly = req.query.branchOnly === 'true' || req.query.branchOnly === '1';
+
+      // Parse selective collection filters (e.g. ?collections=medicines,stockItems,sales)
+      let collections: string[] | undefined;
+      if (req.query.collections) {
+        collections = String(req.query.collections).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      } else if (req.query.include) {
+        collections = String(req.query.include).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      }
+
+      const userRole = (req.headers['x-user-role'] as string) || (req.query.role as string);
+      const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
+
+      const payload = await getAllDataWithConcurrencyLock(db, {
+        userRole,
+        userId,
+        page,
+        limit,
+        branchId,
+        category,
+        search,
+        collections,
+        since,
+        sortBy,
+        sortOrder,
+        branchOnly
+      });
+
+      // Expose pagination & count metadata headers for easy client consumption
+      if (payload && payload.pagination) {
+        res.setHeader('X-Total-Count', String(payload.pagination.totalMedicines ?? 0));
+        res.setHeader('X-Page', String(payload.pagination.page ?? 1));
+        res.setHeader('X-Per-Page', String(payload.pagination.limit ?? 0));
+        res.setHeader('X-Total-Pages', String(payload.pagination.totalPages ?? 1));
+        res.setHeader('X-Has-More', String(payload.pagination.hasMore ?? false));
+      }
+
+      res.json(payload);
+    } catch (err) {
+      console.error('Failed to get all data with concurrency lock:', err);
       res.status(500).json({ error: 'Failed to retrieve bulk state.' });
     }
   });
@@ -8671,12 +9179,27 @@ Please generate a deep financial report containing:
     }
   });
 
-  // Global Unhandled Error Handler
+  // Global Unhandled Error Handler for Express APIs
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('[UNHANDLED ERROR]:', err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal Server Error', message: err?.message || 'Unknown server error' });
+    const timestamp = new Date().toISOString();
+    const method = req.method || 'UNKNOWN';
+    const path = req.originalUrl || req.url || 'UNKNOWN';
+
+    console.error(`[${timestamp}] [API ERROR] ${method} ${path}:`, err?.stack || err?.message || err);
+
+    if (res.headersSent) {
+      return next(err);
     }
+
+    const statusCode = typeof err?.statusCode === 'number' ? err.statusCode : (typeof err?.status === 'number' ? err.status : 500);
+    const safeMessage = err?.message || 'An unexpected internal server error occurred.';
+
+    res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({
+      error: statusCode === 500 ? 'Internal Server Error' : 'Request Error',
+      message: safeMessage,
+      timestamp,
+      path
+    });
   });
 
   // ==================== DEVELOPMENT VITE MIDDLEWARE ====================

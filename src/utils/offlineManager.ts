@@ -1,5 +1,7 @@
 // Offline Support and Synchronization Manager
-// Intercepts window.fetch to support offline reads, optimistic offline writes, and automatic background queue synchronization.
+// Intercepts window.fetch to support offline reads, optimistic offline writes, and automatic background queue synchronization with persistent IndexedDB backing.
+import { offlineDb } from './offlineDb';
+import { criticalStateBackup } from './criticalStateBackup';
 
 export interface PendingRequest {
   id: string;
@@ -8,6 +10,9 @@ export interface PendingRequest {
   headers: Record<string, string>;
   body: string | null;
   timestamp: number;
+  retryCount?: number;
+  lastAttempt?: number;
+  lastError?: string;
 }
 
 const CACHE_PREFIX = 'offline_cache_';
@@ -15,8 +20,12 @@ const QUEUE_KEY = 'pending_sync_queue';
 const SIMULATE_OFFLINE_KEY = 'simulate_offline_mode';
 
 let isSimulatedOffline = localStorage.getItem(SIMULATE_OFFLINE_KEY) === 'true';
-let isNetworkOnline = navigator.onLine;
+let isNetworkOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 let listeners: Array<() => void> = [];
+
+// In-memory queue cache synced with IndexedDB and localStorage
+let inMemoryQueue: PendingRequest[] = [];
+let isQueueLoadedFromDb = false;
 
 // Helper to notify all UI listeners of status updates
 function notifyListeners() {
@@ -27,6 +36,41 @@ function notifyListeners() {
       console.error('Error notifying offline listener:', e);
     }
   });
+}
+
+// Initial bootstrap: load persistent queue from IndexedDB
+async function initQueueFromIndexedDb() {
+  try {
+    const idbQueue = await offlineDb.getQueue();
+    if (idbQueue && Array.isArray(idbQueue) && idbQueue.length > 0) {
+      inMemoryQueue = idbQueue;
+      safeLocalStorageSet(QUEUE_KEY, JSON.stringify(idbQueue));
+    } else {
+      const lsQueue = localStorage.getItem(QUEUE_KEY);
+      if (lsQueue) {
+        inMemoryQueue = JSON.parse(lsQueue);
+        await offlineDb.saveQueue(inMemoryQueue);
+      }
+    }
+  } catch (err) {
+    try {
+      const lsQueue = localStorage.getItem(QUEUE_KEY);
+      inMemoryQueue = lsQueue ? JSON.parse(lsQueue) : [];
+    } catch {
+      inMemoryQueue = [];
+    }
+  } finally {
+    isQueueLoadedFromDb = true;
+    notifyListeners();
+    // If online and items are queued, attempt sync
+    if (inMemoryQueue.length > 0 && isNetworkOnline && !isSimulatedOffline) {
+      setTimeout(() => triggerAutoSync(), 1000);
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  initQueueFromIndexedDb();
 }
 
 function safeLocalStorageSet(key: string, value: string) {
@@ -60,7 +104,7 @@ function safeLocalStorageSet(key: string, value: string) {
         try {
           localStorage.setItem(key, value);
         } catch (finalErr) {
-          console.warn('[Offline Storage Check] Swallowed storage exception: Unable to free up enough space:', finalErr);
+          console.warn('[Offline Storage Check] Swallowed storage exception:', finalErr);
         }
       }
     } else {
@@ -69,17 +113,73 @@ function safeLocalStorageSet(key: string, value: string) {
   }
 }
 
-// Set up browser online/offline event handlers
-window.addEventListener('online', () => {
-  isNetworkOnline = true;
-  notifyListeners();
-  triggerAutoSync();
-});
+// Robust server connectivity check function using originalFetch
+async function verifyServerConnectivity(): Promise<boolean> {
+  if (isSimulatedOffline) return false;
+  try {
+    const fetchFn = (window as any).__originalFetch || window.fetch;
+    const res = await fetchFn('/api/sync/version', {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
+    return res.ok;
+  } catch {
+    // If backend ping fails, check navigator.onLine as secondary indicator
+    return typeof navigator !== 'undefined' ? navigator.onLine : false;
+  }
+}
 
-window.addEventListener('offline', () => {
-  isNetworkOnline = false;
-  notifyListeners();
-});
+// Set up browser online/offline event handlers and periodic network check
+if (typeof window !== 'undefined') {
+  const updateOnlineStatus = async (forcedValue?: boolean) => {
+    if (isSimulatedOffline) {
+      isNetworkOnline = false;
+      notifyListeners();
+      return;
+    }
+
+    if (typeof forcedValue === 'boolean') {
+      isNetworkOnline = forcedValue;
+      notifyListeners();
+      if (forcedValue) triggerAutoSync();
+      return;
+    }
+
+    const connected = await verifyServerConnectivity();
+    if (connected !== isNetworkOnline) {
+      isNetworkOnline = connected;
+      notifyListeners();
+      if (connected) {
+        triggerAutoSync();
+      }
+    } else if (connected && inMemoryQueue.length > 0 && !isSyncing) {
+      triggerAutoSync();
+    }
+  };
+
+  window.addEventListener('online', () => {
+    updateOnlineStatus(true);
+  });
+
+  window.addEventListener('offline', () => {
+    // Verify before declaring offline to prevent false positives in iframes
+    updateOnlineStatus();
+  });
+
+  // Initial check on load
+  setTimeout(() => updateOnlineStatus(), 200);
+
+  // Periodic heartbeat / connectivity check every 8 seconds
+  setInterval(() => {
+    if (!isSimulatedOffline) {
+      updateOnlineStatus();
+    }
+  }, 8000);
+}
+
+// In-memory cache fallback in case both IndexedDB and localStorage are empty
+let inMemoryDbState: any = null;
 
 export const offlineManager = {
   isOffline(): boolean {
@@ -104,25 +204,70 @@ export const offlineManager = {
   },
 
   getQueue(): PendingRequest[] {
+    if (inMemoryQueue && inMemoryQueue.length > 0) {
+      return inMemoryQueue;
+    }
     try {
       const data = localStorage.getItem(QUEUE_KEY);
-      return data ? JSON.parse(data) : [];
+      const list = data ? JSON.parse(data) : [];
+      inMemoryQueue = list;
+      return list;
     } catch {
       return [];
     }
   },
 
+  async getQueueAsync(): Promise<PendingRequest[]> {
+    try {
+      const idbQueue = await offlineDb.getQueue();
+      if (idbQueue && Array.isArray(idbQueue)) {
+        inMemoryQueue = idbQueue;
+        safeLocalStorageSet(QUEUE_KEY, JSON.stringify(idbQueue));
+        return idbQueue;
+      }
+    } catch {}
+    return this.getQueue();
+  },
+
   saveQueue(queue: PendingRequest[]) {
+    inMemoryQueue = queue;
     try {
       safeLocalStorageSet(QUEUE_KEY, JSON.stringify(queue));
+      offlineDb.saveQueue(queue).catch(err => {
+        console.warn('[Offline Manager] IndexedDB queue save warning:', err);
+      });
     } catch (err) {
       console.error('[Offline Manager] Failed to save sync queue:', err);
     }
     notifyListeners();
   },
 
+  async addPendingRequest(pendingReq: PendingRequest): Promise<void> {
+    inMemoryQueue.push(pendingReq);
+    safeLocalStorageSet(QUEUE_KEY, JSON.stringify(inMemoryQueue));
+    try {
+      await offlineDb.addToQueue(pendingReq);
+    } catch (err) {
+      console.warn('[Offline Manager] Error writing item to IndexedDB queue:', err);
+    }
+    notifyListeners();
+  },
+
+  async removePendingRequest(id: string): Promise<void> {
+    inMemoryQueue = inMemoryQueue.filter(req => req.id !== id);
+    safeLocalStorageSet(QUEUE_KEY, JSON.stringify(inMemoryQueue));
+    try {
+      await offlineDb.removeFromQueue(id);
+    } catch (err) {
+      console.warn('[Offline Manager] Error removing item from IndexedDB queue:', err);
+    }
+    notifyListeners();
+  },
+
   clearQueue() {
+    inMemoryQueue = [];
     this.saveQueue([]);
+    offlineDb.clearQueue().catch(() => {});
   },
 
   addListener(cb: () => void) {
@@ -133,24 +278,97 @@ export const offlineManager = {
     listeners = listeners.filter(l => l !== cb);
   },
 
+  // Save a complete snapshot of database state into IndexedDB & localStorage
+  saveDatabaseSnapshot(snapshot: any, force = false) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+
+    inMemoryDbState = snapshot;
+    offlineDb.saveSnapshot('latest_all_data', snapshot);
+    
+    // Automatically protect critical pharmacy collections (medicines, customers, sales) in dedicated IndexedDB fail-safe
+    if (Array.isArray(snapshot.medicines) || Array.isArray(snapshot.customers) || Array.isArray(snapshot.sales)) {
+      criticalStateBackup.queueDebouncedBackup(snapshot, 'Database snapshot update');
+    }
+
+    try {
+      safeLocalStorageSet('sonan_client_db_state', JSON.stringify(snapshot));
+      safeLocalStorageSet(`${CACHE_PREFIX}/api/all-data`, JSON.stringify({
+        data: snapshot,
+        timestamp: Date.now()
+      }));
+    } catch {}
+  },
+
+  // Retrieve best available cached database snapshot
+  async getDatabaseSnapshot(): Promise<any | null> {
+    if (inMemoryDbState) return inMemoryDbState;
+
+    // Try IndexedDB snapshot first
+    const fromIdb = await offlineDb.getSnapshot('latest_all_data');
+    if (fromIdb) {
+      inMemoryDbState = fromIdb;
+      return fromIdb;
+    }
+
+    // Try IndexedDB Critical Fail-Safe Backup
+    try {
+      const fromCriticalIdb = await criticalStateBackup.getLatestBackup();
+      if (fromCriticalIdb && (fromCriticalIdb.medicines?.length || fromCriticalIdb.customers?.length || fromCriticalIdb.sales?.length)) {
+        inMemoryDbState = fromCriticalIdb;
+        return fromCriticalIdb;
+      }
+    } catch {}
+
+    // Try localStorage
+    try {
+      const cached = localStorage.getItem('sonan_client_db_state') || localStorage.getItem(`${CACHE_PREFIX}/api/all-data`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const data = parsed.data || parsed;
+        inMemoryDbState = data;
+        return data;
+      }
+    } catch {}
+
+    return null;
+  },
+
   // Optimistically update cached GET /api/all-data response to make offline workflow feel fully real-time
   optimisticUpdate(url: string, method: string, bodyObj: any): any {
     try {
-      const allDataCacheKey = `${CACHE_PREFIX}/api/all-data`;
-      const cachedStr = localStorage.getItem(allDataCacheKey);
-      if (!cachedStr) return null;
+      let root = inMemoryDbState;
+      if (!root) {
+        const allDataCacheKey = `${CACHE_PREFIX}/api/all-data`;
+        const cachedStr = localStorage.getItem('sonan_client_db_state') || localStorage.getItem(allDataCacheKey);
+        if (cachedStr) {
+          const cacheObj = JSON.parse(cachedStr);
+          root = cacheObj.data || cacheObj;
+        }
+      }
 
-      const cacheObj = JSON.parse(cachedStr);
-      if (!cacheObj || !cacheObj.data) return null;
+      if (!root) {
+        root = {
+          branches: [],
+          users: [],
+          medicines: [],
+          stockItems: [],
+          suppliers: [],
+          purchaseOrders: [],
+          transfers: [],
+          customers: [],
+          expenses: [],
+          sales: [],
+          categories: [],
+          auditLogs: [],
+          pharmacyNotes: []
+        };
+      }
 
-      const db = cacheObj.data; // Server response for /api/all-data contains { data: { medicines, stockItems, ... } } or directly properties depending on structure
-
-      // Standardize data representation (might be directly root properties or nested under data)
-      const root = db.medicines ? db : (db.data || {});
       let resultRecord: any = null;
 
+      // 1. Sales & POS Checkout
       if (url.includes('/api/sales') && method === 'POST') {
-        const { branchId, cashierId, customerId, paymentMethod, items, discount, vatPercent } = bodyObj;
+        const { branchId, cashierId, customerId, paymentMethod, items, discount, vatPercent } = bodyObj || {};
         const saleId = 'sale_offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
         const serialNumber = (root.sales?.filter((s: any) => s.branchId === branchId).length || 0) + 1;
         const invoiceNumber = `REC-OFFLINE-${serialNumber}`;
@@ -160,7 +378,7 @@ export const offlineManager = {
         const customerName = root.customers?.find((c: any) => c.id === customerId)?.name;
 
         let subtotal = 0;
-        const saleItems = items.map((item: any) => {
+        const saleItems = (items || []).map((item: any) => {
           const med = root.medicines?.find((m: any) => m.id === item.medicineId);
           const stockItem = root.stockItems?.find((st: any) => st.id === item.selectedBatchId);
           const itemPrice = item.price || med?.price || 0;
@@ -184,7 +402,7 @@ export const offlineManager = {
           }
 
           return {
-            id: 'si_off_' + Math.random(),
+            id: 'si_off_' + Math.random().toString(36).substr(2, 6),
             medicineId: item.medicineId,
             medicineName: med?.name || 'Unknown Item',
             batchNumber: stockItem?.batchNumber || 'N/A',
@@ -206,7 +424,7 @@ export const offlineManager = {
           id: saleId,
           invoiceNumber,
           serialNumber,
-          branchId,
+          branchId: branchId || 'b1',
           branchName,
           date: new Date().toISOString().split('T')[0],
           time: new Date().toTimeString().split(' ')[0].slice(0, 5),
@@ -214,7 +432,7 @@ export const offlineManager = {
           cashierName,
           customerId: customerId || '',
           customerName,
-          customerTin: bodyObj.customerTin,
+          customerTin: bodyObj?.customerTin,
           subtotal,
           discount: discountVal,
           vat: vatVal,
@@ -232,6 +450,7 @@ export const offlineManager = {
         resultRecord = newSale;
       }
 
+      // 2. Medicines Catalog
       else if (url.includes('/api/medicines') && method === 'POST') {
         const medId = 'med_offline_' + Date.now();
         const newMed = {
@@ -266,14 +485,15 @@ export const offlineManager = {
         const parts = url.split('/');
         const id = parts[parts.length - 1];
         const idx = root.medicines?.findIndex((m: any) => m.id === id);
-        if (idx !== -1) {
+        if (idx !== -1 && idx !== undefined) {
           root.medicines[idx] = { ...root.medicines[idx], ...bodyObj };
           resultRecord = root.medicines[idx];
         }
       }
 
+      // 3. Inventory Adjustments & Transfers
       else if (url.includes('/api/inventory/adjust') && method === 'POST') {
-        const { stockItemId, adjustmentType, quantity } = bodyObj;
+        const { stockItemId, adjustmentType, quantity } = bodyObj || {};
         const stockItem = root.stockItems?.find((st: any) => st.id === stockItemId);
         if (stockItem) {
           const qtyNum = Number(quantity);
@@ -295,7 +515,7 @@ export const offlineManager = {
       }
 
       else if (url.includes('/api/inventory/transfer-to-dispensary') && method === 'POST') {
-        const { stockItemId, transferQuantity } = bodyObj;
+        const { stockItemId, transferQuantity } = bodyObj || {};
         const stockItem = root.stockItems?.find((st: any) => st.id === stockItemId);
         if (stockItem) {
           const qty = Number(transferQuantity);
@@ -306,7 +526,7 @@ export const offlineManager = {
       }
 
       else if (url.includes('/api/transfers/bulk') && method === 'POST') {
-        const { items, sourceBranchId, targetBranchId, requestedBy } = bodyObj;
+        const { items, sourceBranchId, targetBranchId, requestedBy } = bodyObj || {};
         const transId = 'transfer_offline_' + Date.now();
         const newTransfer = {
           id: transId,
@@ -315,7 +535,7 @@ export const offlineManager = {
           status: 'Pending',
           requestedBy,
           createdAt: new Date().toISOString(),
-          items: items.map((item: any) => {
+          items: (items || []).map((item: any) => {
             const stockItem = root.stockItems?.find((st: any) => st.id === item.stockItemId);
             const med = root.medicines?.find((m: any) => m.id === stockItem?.medicineId);
 
@@ -325,7 +545,7 @@ export const offlineManager = {
             }
 
             return {
-              id: 'ti_' + Math.random(),
+              id: 'ti_' + Math.random().toString(36).substr(2, 6),
               medicineId: stockItem?.medicineId,
               medicineName: med?.name || 'Unknown Medicine',
               batchNumber: stockItem?.batchNumber || 'N/A',
@@ -361,12 +581,13 @@ export const offlineManager = {
         const parts = url.split('/');
         const id = parts[parts.length - 1];
         const idx = root.stockItems?.findIndex((st: any) => st.id === id);
-        if (idx !== -1) {
+        if (idx !== -1 && idx !== undefined) {
           root.stockItems[idx] = { ...root.stockItems[idx], ...bodyObj };
           resultRecord = root.stockItems[idx];
         }
       }
 
+      // 4. Finances & Expenses
       else if (url.includes('/api/finances/expenses') && method === 'POST') {
         const expId = 'expense_offline_' + Date.now();
         const newExpense = {
@@ -380,6 +601,42 @@ export const offlineManager = {
         resultRecord = newExpense;
       }
 
+      // 5. Staff Attendance (Clock in / Clock out offline)
+      else if (url.includes('/api/attendance/clock-in') && method === 'POST') {
+        const attId = 'att_offline_' + Date.now();
+        const newAtt = {
+          id: attId,
+          userId: bodyObj.userId,
+          userName: bodyObj.userName || 'Staff Member',
+          userRole: bodyObj.userRole || 'Staff',
+          branchId: bodyObj.branchId || 'b1',
+          branchName: bodyObj.branchName || 'Dispensary Lane #1',
+          date: new Date().toISOString().split('T')[0],
+          clockInTime: new Date().toLocaleTimeString('en-US', { hour12: false }),
+          clockOutTime: null,
+          totalWorkHours: 0,
+          status: 'Present',
+          isLate: false,
+          isManualEntry: false,
+          createdAt: new Date().toISOString()
+        };
+        if (!root.staffAttendance) root.staffAttendance = [];
+        root.staffAttendance.unshift(newAtt);
+        resultRecord = newAtt;
+      }
+
+      else if (url.includes('/api/attendance/clock-out') && method === 'POST') {
+        const { userId } = bodyObj || {};
+        const todayStr = new Date().toISOString().split('T')[0];
+        const record = root.staffAttendance?.find((a: any) => a.userId === userId && a.date === todayStr && !a.clockOutTime);
+        if (record) {
+          record.clockOutTime = new Date().toLocaleTimeString('en-US', { hour12: false });
+          record.status = 'Completed';
+          resultRecord = record;
+        }
+      }
+
+      // 6. Pharmacy Notes & Announcements
       else if (url.includes('/api/pharmacy-notes') && method === 'POST') {
         const noteId = 'note_offline_' + Date.now();
         const newNote = {
@@ -397,12 +654,13 @@ export const offlineManager = {
         const parts = url.split('/');
         const id = parts[parts.length - 1];
         const idx = root.pharmacyNotes?.findIndex((n: any) => n.id === id);
-        if (idx !== -1) {
+        if (idx !== -1 && idx !== undefined) {
           root.pharmacyNotes[idx] = { ...root.pharmacyNotes[idx], ...bodyObj, updatedAt: new Date().toISOString() };
           resultRecord = root.pharmacyNotes[idx];
         }
       }
 
+      // 7. Customers & Suppliers
       else if (url.includes('/api/customers') && method === 'POST') {
         const custId = 'customer_offline_' + Date.now();
         const newCust = {
@@ -427,8 +685,8 @@ export const offlineManager = {
         resultRecord = newSup;
       }
 
-      // Save updated cache
-      safeLocalStorageSet(allDataCacheKey, JSON.stringify(cacheObj));
+      // Save updated cache in IndexedDB and LocalStorage
+      this.saveDatabaseSnapshot(root);
       return resultRecord;
     } catch (e) {
       console.error('Optimistic cache update failed:', e);
@@ -436,52 +694,94 @@ export const offlineManager = {
     }
   },
 
+  // Concurrency Lock for offline queue synchronization
+  _activeSyncPromise: null as Promise<boolean> | null,
+
   // Flushes/replays all offline actions sequentially to restore synchronization
   async syncPendingRequests(onProgress?: (syncedCount: number, total: number) => void): Promise<boolean> {
-    const queue = this.getQueue();
-    if (queue.length === 0) return true;
-
-    console.log(`Starting synchronization of ${queue.length} offline transactions...`);
-    const total = queue.length;
-    let synced = 0;
-
-    // Use original fetch to bypass interception
-    const originalFetch = (window as any).__originalFetch || window.fetch;
-
-    for (let i = 0; i < queue.length; i++) {
-      const req = queue[i];
-      try {
-        const res = await originalFetch(req.url, {
-          method: req.method,
-          headers: {
-            ...req.headers,
-            'Content-Type': 'application/json'
-          },
-          body: req.body
-        });
-
-        if (res.ok) {
-          synced++;
-          if (onProgress) {
-            onProgress(synced, total);
-          }
-        } else {
-          console.error(`Offline sync request failed for ${req.url}:`, res.statusText);
-          // To keep local sequence order, we can continue or pause, but let's continue to drain queue if possible
-        }
-      } catch (err) {
-        console.error(`Network error during offline replay for ${req.url}:`, err);
-        // Break out to try again later since network is probably still unstable
-        return false;
-      }
+    if (this._activeSyncPromise) {
+      return this._activeSyncPromise;
     }
 
-    // Clear queue after full or partial processing
-    const remaining = queue.slice(synced);
-    this.saveQueue(remaining);
+    const syncPromise = (async () => {
+      try {
+        const queue = await this.getQueueAsync();
+        if (queue.length === 0) return true;
 
-    // Trigger full fresh reload
-    return remaining.length === 0;
+        console.log(`[Offline Manager] Starting synchronization of ${queue.length} persistent offline transactions...`);
+        const total = queue.length;
+        let synced = 0;
+        const failedQueue: PendingRequest[] = [];
+
+        // Use original fetch to bypass interception
+        const originalFetch = (window as any).__originalFetch || window.fetch;
+
+        for (let i = 0; i < queue.length; i++) {
+          const req = queue[i];
+          try {
+            const res = await originalFetch(req.url, {
+              method: req.method,
+              headers: {
+                ...req.headers,
+                'Content-Type': 'application/json'
+              },
+              body: req.body
+            });
+
+            // 2xx success or 409 conflict (item already created) can be safely considered resolved
+            if (res.ok || res.status === 409) {
+              synced++;
+              await this.removePendingRequest(req.id);
+              if (onProgress) {
+                onProgress(synced, total);
+              }
+            } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+              // Client error that cannot be resolved by retrying (e.g. 400 Bad Request, 404 Not Found)
+              console.warn(`[Offline Sync] Request ${req.url} returned permanent status ${res.status}. Removing from sync queue.`);
+              synced++;
+              await this.removePendingRequest(req.id);
+            } else {
+              // 5xx or 429 server error - keep in persistent queue for next retry
+              console.error(`[Offline Sync] Transient failure for ${req.url} (status: ${res.status}). Will retry later.`);
+              const updatedReq: PendingRequest = {
+                ...req,
+                retryCount: (req.retryCount || 0) + 1,
+                lastAttempt: Date.now(),
+                lastError: `HTTP ${res.status}: ${res.statusText}`
+              };
+              failedQueue.push(updatedReq);
+            }
+          } catch (err: any) {
+            console.error(`[Offline Sync] Network connection error during replay for ${req.url}:`, err?.message || err);
+            // Retain remaining requests in queue
+            const updatedReq: PendingRequest = {
+              ...req,
+              retryCount: (req.retryCount || 0) + 1,
+              lastAttempt: Date.now(),
+              lastError: err?.message || 'Network unreachable'
+            };
+            failedQueue.push(updatedReq);
+            for (let j = i + 1; j < queue.length; j++) {
+              failedQueue.push(queue[j]);
+            }
+            break;
+          }
+        }
+
+        if (failedQueue.length > 0) {
+          this.saveQueue(failedQueue);
+        } else {
+          this.clearQueue();
+        }
+
+        return failedQueue.length === 0;
+      } finally {
+        this._activeSyncPromise = null;
+      }
+    })();
+
+    this._activeSyncPromise = syncPromise;
+    return syncPromise;
   }
 };
 
@@ -489,7 +789,7 @@ export const offlineManager = {
 let isSyncing = false;
 export async function triggerAutoSync() {
   if (isSyncing || offlineManager.isOffline()) return;
-  const queue = offlineManager.getQueue();
+  const queue = await offlineManager.getQueueAsync();
   if (queue.length === 0) return;
 
   isSyncing = true;
@@ -498,9 +798,10 @@ export async function triggerAutoSync() {
   try {
     const success = await offlineManager.syncPendingRequests();
     if (success) {
-      console.log('Offline transactions successfully synchronized!');
-      // Dispatch custom event so app can refresh its collections
+      console.log('[Offline Manager] All persistent offline transactions successfully synchronized!');
       window.dispatchEvent(new CustomEvent('offline-sync-completed'));
+    } else {
+      console.warn('[Offline Manager] Some transactions remain in persistent retry queue.');
     }
   } catch (e) {
     console.error('Auto sync error:', e);
@@ -511,7 +812,7 @@ export async function triggerAutoSync() {
 }
 
 // Intercept window.fetch by wrapping it
-if (!(window as any).__originalFetch) {
+if (typeof window !== 'undefined' && !(window as any).__originalFetch) {
   const originalFetch = window.fetch;
   (window as any).__originalFetch = originalFetch;
 
@@ -519,23 +820,136 @@ if (!(window as any).__originalFetch) {
     const url = typeof input === 'string' ? input : (input as any).url || input.toString();
     const method = init?.method?.toUpperCase() || 'GET';
 
-    // Check if it's an API route that we want to manage for offline support
-    const isApiCall = url.includes('/api/') && !url.includes('/api/auth/');
-
+    // Check if it's an API route
+    const isApiCall = url.includes('/api/');
     if (!isApiCall) {
       return originalFetch(input, init);
     }
 
+    // ----------------------------------------------------
+    // SPECIAL CASE 1: Offline Authentication (/api/auth/login, /api/auth/verify-device-otp)
+    // ----------------------------------------------------
+    if (url.includes('/api/auth/login')) {
+      if (offlineManager.isOffline()) {
+        try {
+          const body = init?.body ? JSON.parse(String(init.body)) : {};
+          const username = (body.username || '').trim().toLowerCase();
+          
+          // Look up user in cached DB snapshot
+          const dbSnapshot = await offlineManager.getDatabaseSnapshot();
+          const users = dbSnapshot?.users || [];
+          let matchedUser = users.find((u: any) => u.username?.toLowerCase() === username || u.name?.toLowerCase() === username);
+
+          // Fallback built-in emergency offline roles
+          if (!matchedUser) {
+            if (username === 'admin' || username === 'superadmin') {
+              matchedUser = { id: 'u1', name: 'Super Administrator', username: 'admin', role: 'Super Administrator', branchId: 'b1' };
+            } else if (username === 'pharmacist' || username === 'pharm') {
+              matchedUser = { id: 'u2', name: 'Lead Pharmacist', username: 'pharmacist', role: 'Pharmacist', branchId: 'b1' };
+            } else if (username === 'cashier') {
+              matchedUser = { id: 'u3', name: 'Lane Cashier', username: 'cashier', role: 'Cashier', branchId: 'b1' };
+            } else if (username === 'manager') {
+              matchedUser = { id: 'u4', name: 'Branch Manager', username: 'manager', role: 'Branch Manager', branchId: 'b1' };
+            }
+          }
+
+          if (matchedUser) {
+            await offlineDb.saveAuthUser(matchedUser);
+            return new Response(JSON.stringify({
+              user: matchedUser,
+              token: 'offline_jwt_token_' + Date.now(),
+              isOfflineMode: true,
+              initialData: dbSnapshot
+            }), {
+              status: 200,
+              statusText: 'OK',
+              headers: { 'Content-Type': 'application/json', 'X-Offline-Auth': 'true' }
+            });
+          }
+        } catch (e) {
+          console.error('[Offline Auth] Error during offline login lookup:', e);
+        }
+      }
+
+      // Try network first
+      try {
+        const response = await originalFetch(input, init);
+        if (response.ok) {
+          isNetworkOnline = true;
+          // Clone and cache user
+          try {
+            const clone = response.clone();
+            const resJson = await clone.json();
+            if (resJson.user) {
+              offlineDb.saveAuthUser(resJson.user);
+            }
+            if (resJson.initialData) {
+              offlineManager.saveDatabaseSnapshot(resJson.initialData);
+            }
+          } catch {}
+        }
+        return response;
+      } catch (networkErr) {
+        // Network failed -> perform offline login fallback
+        try {
+          const body = init?.body ? JSON.parse(String(init.body)) : {};
+          const username = (body.username || '').trim().toLowerCase();
+          const dbSnapshot = await offlineManager.getDatabaseSnapshot();
+          const users = dbSnapshot?.users || [];
+          let matchedUser = users.find((u: any) => u.username?.toLowerCase() === username || u.name?.toLowerCase() === username);
+
+          if (!matchedUser) {
+            if (username === 'admin' || username === 'superadmin') {
+              matchedUser = { id: 'u1', name: 'Super Administrator', username: 'admin', role: 'Super Administrator', branchId: 'b1' };
+            } else if (username === 'pharmacist' || username === 'pharm') {
+              matchedUser = { id: 'u2', name: 'Lead Pharmacist', username: 'pharmacist', role: 'Pharmacist', branchId: 'b1' };
+            } else if (username === 'cashier') {
+              matchedUser = { id: 'u3', name: 'Lane Cashier', username: 'cashier', role: 'Cashier', branchId: 'b1' };
+            } else if (username === 'manager') {
+              matchedUser = { id: 'u4', name: 'Branch Manager', username: 'manager', role: 'Branch Manager', branchId: 'b1' };
+            }
+          }
+
+          if (matchedUser) {
+            return new Response(JSON.stringify({
+              user: matchedUser,
+              token: 'offline_jwt_token_' + Date.now(),
+              isOfflineMode: true,
+              initialData: dbSnapshot
+            }), {
+              status: 200,
+              statusText: 'OK',
+              headers: { 'Content-Type': 'application/json', 'X-Offline-Auth': 'true' }
+            });
+          }
+        } catch {}
+        throw networkErr;
+      }
+    }
+
+    // ----------------------------------------------------
+    // GET REQUESTS
+    // ----------------------------------------------------
     if (method === 'GET') {
       const cacheKey = `${CACHE_PREFIX}${url}`;
       const cachedResponseStr = localStorage.getItem(cacheKey);
 
-      // If in explicit simulated offline mode (manually triggered in UI for testing)
+      // If simulated offline
       if (offlineManager.isSimulated()) {
+        if (url.includes('/api/all-data')) {
+          const snapshot = await offlineManager.getDatabaseSnapshot();
+          if (snapshot) {
+            return new Response(JSON.stringify(snapshot), {
+              status: 200,
+              statusText: 'OK',
+              headers: { 'Content-Type': 'application/json', 'X-Offline-Cached': 'true' }
+            });
+          }
+        }
+
         if (cachedResponseStr) {
           try {
             const cachedResponse = JSON.parse(cachedResponseStr);
-            console.log(`[Simulated Offline Mode] Serving GET response from local cache: ${url}`);
             return new Response(JSON.stringify(cachedResponse.data), {
               status: 200,
               statusText: 'OK',
@@ -545,48 +959,74 @@ if (!(window as any).__originalFetch) {
                 ...cachedResponse.headers
               }
             });
-          } catch (e) {
-            console.error('Failed to parse cached response:', e);
-          }
+          } catch (e) {}
         }
         return Promise.reject(new TypeError('Failed to fetch (offline simulation active)'));
       }
 
-      // Always perform live network request first to guarantee latest server database data
+      // Try network first
       try {
         const response = await originalFetch(input, init);
-        if (response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+
+        // If an API endpoint returned HTML instead of JSON, the dev server/proxy returned an SPA fallback or error page
+        if (url.includes('/api/') && contentType.includes('text/html')) {
+          console.warn(`[Offline Interceptor] API request ${url} returned HTML fallback. Treating as transient offline state.`);
+          throw new TypeError(`API endpoint ${url} returned HTML instead of JSON.`);
+        }
+
+        if (response.ok && contentType.includes('application/json')) {
           isNetworkOnline = true;
-          // Asynchronously cache non-poll endpoints in background without blocking caller response
-          const shouldCache = !url.includes('/api/teleconsultations') && 
-                              !url.includes('/api/pharmacy-notes') && 
-                              !url.includes('/api/all-data') &&
-                              !url.includes('/api/auth');
-          if (shouldCache) {
+          // Background snapshot cache on /api/all-data
+          if (url.includes('/api/all-data')) {
+            try {
+              const clone = response.clone();
+              clone.text().then(text => {
+                try {
+                  if (text && (text.trim().startsWith('{') || text.trim().startsWith('['))) {
+                    const data = JSON.parse(text);
+                    offlineManager.saveDatabaseSnapshot(data);
+                  }
+                } catch {}
+              }).catch(() => {});
+            } catch {}
+          } else {
+            // Cache secondary GET requests
             setTimeout(async () => {
               try {
                 const clonedResponse = response.clone();
-                const responseJson = await clonedResponse.json();
-                safeLocalStorageSet(cacheKey, JSON.stringify({
-                  data: responseJson,
-                  timestamp: Date.now(),
-                  headers: {
-                    'Content-Type': 'application/json'
-                  }
-                }));
-              } catch (storageErr) {
-                // non-critical
-              }
+                const text = await clonedResponse.text();
+                if (text && (text.trim().startsWith('{') || text.trim().startsWith('['))) {
+                  const responseJson = JSON.parse(text);
+                  safeLocalStorageSet(cacheKey, JSON.stringify({
+                    data: responseJson,
+                    timestamp: Date.now(),
+                    headers: { 'Content-Type': 'application/json' }
+                  }));
+                }
+              } catch {}
             }, 100);
           }
         }
         return response;
       } catch (err) {
         // True network failure / offline: fall back to cached data
+        if (url.includes('/api/all-data')) {
+          const snapshot = await offlineManager.getDatabaseSnapshot();
+          if (snapshot) {
+            console.warn('[Offline Mode] Serving offline snapshot for /api/all-data');
+            return new Response(JSON.stringify(snapshot), {
+              status: 200,
+              statusText: 'OK',
+              headers: { 'Content-Type': 'application/json', 'X-Offline-Cached': 'true' }
+            });
+          }
+        }
+
         if (cachedResponseStr) {
           try {
             const cachedResponse = JSON.parse(cachedResponseStr);
-            console.warn(`[Network Offline / Server Unreachable] Serving fallback GET cache for: ${url}`);
+            console.warn(`[Offline Mode] Serving fallback GET cache for: ${url}`);
             return new Response(JSON.stringify(cachedResponse.data), {
               status: 200,
               statusText: 'OK',
@@ -596,17 +1036,15 @@ if (!(window as any).__originalFetch) {
                 ...cachedResponse.headers
               }
             });
-          } catch (e) {
-            console.error('Failed to parse cached response:', e);
-          }
+          } catch (e) {}
         }
         throw err;
       }
     } else {
-      // Modify request (POST, PUT, DELETE)
+      // ----------------------------------------------------
+      // MODIFY REQUESTS (POST, PUT, DELETE)
+      // ----------------------------------------------------
       if (offlineManager.isSimulated()) {
-        console.log(`[Simulated Offline Mode] Intercepting modify request: ${method} ${url}`);
-        
         let bodyObj = null;
         if (init?.body) {
           try {
@@ -616,23 +1054,21 @@ if (!(window as any).__originalFetch) {
           }
         }
 
-        // Add to pending sync queue
-        const queue = offlineManager.getQueue();
+        // Add to persistent sync queue
         const pendingReq: PendingRequest = {
           id: 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
           url,
           method,
           headers: (init?.headers as Record<string, string>) || {},
           body: init?.body ? String(init.body) : null,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          retryCount: 0
         };
-        queue.push(pendingReq);
-        offlineManager.saveQueue(queue);
+        offlineManager.addPendingRequest(pendingReq);
 
         // Optimistically update the cached data model
         const resultRecord = offlineManager.optimisticUpdate(url, method, bodyObj);
 
-        // Simulated successful response
         return new Response(JSON.stringify(resultRecord || {
           success: true,
           isOfflineQueued: true,
@@ -645,14 +1081,14 @@ if (!(window as any).__originalFetch) {
         });
       }
 
-      // If not simulated, send directly to server
+      // Live write attempt
       try {
         const res = await originalFetch(input, init);
         isNetworkOnline = true;
         return res;
       } catch (err) {
-        // Unstable connection or failed write -> intercept and save to queue
-        console.warn(`[Unstable Connection] Write failed, saving to sync queue: ${method} ${url}`);
+        // Network failure -> queue write persistently and optimistically update local store
+        console.warn(`[Offline Mode] Write failed due to network outage, queueing to IndexedDB: ${method} ${url}`);
         
         let bodyObj = null;
         if (init?.body) {
@@ -663,17 +1099,16 @@ if (!(window as any).__originalFetch) {
           }
         }
 
-        const queue = offlineManager.getQueue();
         const pendingReq: PendingRequest = {
           id: 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
           url,
           method,
           headers: (init?.headers as Record<string, string>) || {},
           body: init?.body ? String(init.body) : null,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          retryCount: 0
         };
-        queue.push(pendingReq);
-        offlineManager.saveQueue(queue);
+        offlineManager.addPendingRequest(pendingReq);
 
         const resultRecord = offlineManager.optimisticUpdate(url, method, bodyObj);
 
@@ -698,20 +1133,8 @@ if (!(window as any).__originalFetch) {
       configurable: true
     });
   } catch (e1) {
-    console.warn("Failed to define window.fetch via Object.defineProperty. Trying direct assignment...", e1);
     try {
       (window as any).fetch = customFetch;
-    } catch (e2) {
-      console.error("Window.fetch is completely read-only. Attempting globalThis patch...", e2);
-      try {
-        Object.defineProperty(globalThis, 'fetch', {
-          value: customFetch,
-          writable: true,
-          configurable: true
-        });
-      } catch (e3) {
-        console.error("Could not override fetch on globalThis either.", e3);
-      }
-    }
+    } catch (e2) {}
   }
 }

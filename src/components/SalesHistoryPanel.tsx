@@ -43,16 +43,16 @@ export default function SalesHistoryPanel({
 
   // Sync with incoming prop updates
   useEffect(() => {
-    if (initialSales && initialSales.length > 0) setSales(initialSales);
+    if (Array.isArray(initialSales)) setSales(initialSales);
   }, [initialSales]);
   useEffect(() => {
-    if (initialMedicines && initialMedicines.length > 0) setMedicines(initialMedicines);
+    if (Array.isArray(initialMedicines)) setMedicines(initialMedicines);
   }, [initialMedicines]);
   useEffect(() => {
-    if (initialCashiers && initialCashiers.length > 0) setCashiers(initialCashiers);
+    if (Array.isArray(initialCashiers)) setCashiers(initialCashiers);
   }, [initialCashiers]);
   useEffect(() => {
-    if (initialBranches && initialBranches.length > 0) setBranches(initialBranches);
+    if (Array.isArray(initialBranches)) setBranches(initialBranches);
   }, [initialBranches]);
 
   // Filters
@@ -108,10 +108,10 @@ export default function SalesHistoryPanel({
         fetch('/api/branches').then(r => r.ok ? r.json() : null),
         fetch('/api/settings/institution').then(r => r.ok ? r.json() : null)
       ]);
-      if (Array.isArray(salesRes) && salesRes.length > 0) setSales(salesRes);
-      if (Array.isArray(medRes) && medRes.length > 0) setMedicines(medRes);
-      if (Array.isArray(userRes) && userRes.length > 0) setCashiers(userRes);
-      if (Array.isArray(branchRes) && branchRes.length > 0) setBranches(branchRes);
+      if (Array.isArray(salesRes)) setSales(salesRes);
+      if (Array.isArray(medRes)) setMedicines(medRes);
+      if (Array.isArray(userRes)) setCashiers(userRes);
+      if (Array.isArray(branchRes)) setBranches(branchRes);
       if (instRes) {
         setInstitution({
           name: instRes.name || 'Sonan Pharmacy',
@@ -186,8 +186,9 @@ export default function SalesHistoryPanel({
     );
 
     // 2. Date filters
-    const matchStartDate = !startDate ? true : sale.date >= startDate;
-    const matchEndDate = !endDate ? true : sale.date <= endDate;
+    const saleDateStr = sale.date ? String(sale.date).split('T')[0].split(' ')[0] : '';
+    const matchStartDate = !startDate ? true : (saleDateStr ? saleDateStr >= startDate : true);
+    const matchEndDate = !endDate ? true : (saleDateStr ? saleDateStr <= endDate : true);
 
     // 3. Cashier filter without cross-branch mixing
     const targetCashier = selectedCashierId ? cashiers.find(c => c.id === selectedCashierId) : null;

@@ -56,52 +56,17 @@ export interface DbSchema {
 }
 
 const INITIAL_BRANCHES: Branch[] = [
-  { id: 'b1', name: 'Sonan Pharmacy Main Branch', code: 'SP-MAIN', address: '120 Ring Road, Addis Ababa, Ethiopia', phone: '+251-11-6112233' },
-  { id: 'b2', name: 'Sonan Pharmacy No. 2', code: 'SP-B2', address: 'Bole Medhanialem, Addis Ababa, Ethiopia', phone: '+251-11-6633445' },
-  { id: 'b3', name: 'Sonan Pharmacy No. 3', code: 'SP-B3', address: 'Megenagna Square, Addis Ababa, Ethiopia', phone: '+251-11-6225566' }
+  { id: 'b1', name: 'Main Branch', code: 'SP-MAIN', address: 'Main Pharmacy Location, Addis Ababa', phone: '+251-11-0000000' }
 ];
 
 const INITIAL_USERS: (User & { passwordHash: string })[] = [
-  { id: 'u1', username: 'admin', name: 'Admin', email: 'admin.super@sonanpharma.com', role: UserRole.SUPER_ADMIN, branchId: 'all', isActive: true, twoFactorEnabled: false, twoFactorSecret: '123456', passwordHash: 'admin123', recognizedDevices: ['dev_default'] }
+  { id: 'u1', username: 'admin', name: 'Admin', email: 'admin@sonanpharma.com', role: UserRole.SUPER_ADMIN, branchId: 'all', isActive: true, twoFactorEnabled: false, twoFactorSecret: '123456', passwordHash: 'admin123', recognizedDevices: ['dev_default'] }
 ];
 
-const INITIAL_SUPPLIERS: Supplier[] = [
-  { id: 's1', name: 'Medco Pharmaceuticals PLC', phone: '+251-11-4402030', email: 'sales@medco-ethiopia.com', address: 'Lideta Industrial Zone, Addis Ababa', balance: 45000 },
-  { id: 's2', name: 'Sonan Distributors Group', phone: '+251-11-6554433', email: 'orders@sonandistributors.com', address: 'Kirkos Subcity, Addis Ababa', balance: 12000 },
-  { id: 's3', name: 'Apex Biotech Supplies', phone: '+251-11-5509988', email: 'apex@biotech-supplies.com', address: 'Akaki Kality, Addis Ababa', balance: 0 }
-];
-
-const INITIAL_MEDICINES: Medicine[] = [
-  { id: 'm1', name: 'Amoxicillin 500mg', genericName: 'Amoxicillin Trihydrate', barcode: '6281001123456', sku: 'MED-AMX-500', category: 'Antibiotics', subCategory: 'Penicillins', price: 180, buyingPrice: 120, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 20, description: 'Broad-spectrum penicillin antibiotic used to treat bacterial infections.', productType: 'medicine', imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&q=80' },
-  { id: 'm2', name: 'Paracetamol 500mg', genericName: 'Paracetamol (Acetaminophen)', barcode: '6281001123457', sku: 'MED-PAR-500', category: 'Analgesics', subCategory: 'Antipyretics (Fever)', price: 45, buyingPrice: 25, isPrescriptionRequired: false, unit: 'Box', minStockLevel: 50, description: 'Common pain reliever and fever reducer.', productType: 'medicine', imageUrl: 'https://images.unsplash.com/photo-1550572017-edd951aa8f72?w=300&q=80' },
-  { id: 'm3', name: 'Metformin 850mg', genericName: 'Metformin Hydrochloride', barcode: '6281001123458', sku: 'MED-MET-850', category: 'Hormones', subCategory: 'Diabetes / Insulin', price: 240, buyingPrice: 160, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 15, description: 'Oral diabetes medicine that helps control blood sugar levels.', productType: 'medicine' },
-  { id: 'm4', name: 'Atorvastatin 20mg', genericName: 'Atorvastatin Calcium', barcode: '6281001123459', sku: 'MED-ATR-20', category: 'Cardiovascular (CV)', subCategory: 'Statins / Cholesterol', price: 380, buyingPrice: 280, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 10, description: 'Statins lipid-lowering medication used to prevent cardiovascular disease.', productType: 'medicine' },
-  { id: 'm5', name: 'Omeprazole 20mg', genericName: 'Omeprazole Delayed-Release', barcode: '6281001123460', sku: 'MED-OMP-20', category: 'Gastrointestinal (GIT)', subCategory: 'Antacids / PPIs', price: 90, buyingPrice: 55, isPrescriptionRequired: false, unit: 'Box', minStockLevel: 25, description: 'Proton pump inhibitor used to treat gastroesophageal reflux disease.', productType: 'medicine' },
-  { id: 'm6', name: 'Ibuprofen 400mg', genericName: 'Ibuprofen', barcode: '6281001123461', sku: 'MED-IBU-400', category: 'Analgesics', subCategory: 'NSAIDs', price: 65, buyingPrice: 38, isPrescriptionRequired: false, unit: 'Box', minStockLevel: 30, description: 'Nonsteroidal anti-inflammatory drug (NSAID) used for pain and fever.', productType: 'medicine' },
-  { id: 'm7', name: 'Azithromycin 500mg', genericName: 'Azithromycin dihydrate', barcode: '6281001123462', sku: 'MED-AZM-500', category: 'Antibiotics', subCategory: 'Macrolides', price: 420, buyingPrice: 300, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 15, description: 'Macrolide antibiotic used for bacterial infections.', productType: 'medicine' },
-  { id: 'm8', name: 'Loratadine 10mg', genericName: 'Loratadine', barcode: '6281001123463', sku: 'MED-LOR-10', category: 'Respiratory', subCategory: 'Antihistamines / Allergy', price: 80, buyingPrice: 48, isPrescriptionRequired: false, unit: 'Box', minStockLevel: 20, description: 'Non-drowsy 24-hour allergy relief tablets.', productType: 'medicine' },
-  { id: 'm9', name: 'Fluconazole 150mg', genericName: 'Fluconazole', barcode: '6281001123464', sku: 'MED-FLU-150', category: 'Anti Fungal', subCategory: 'Oral Antifungal', price: 160, buyingPrice: 100, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 10, description: 'Antifungal medication used to treat mucosal and systemic fungal infections.', productType: 'medicine' },
-  { id: 'm10', name: 'Cefalexin 500mg Capsule', genericName: 'Cefalexin Monohydrate', barcode: '6281001123465', sku: 'MED-CFX-500', category: 'Antibiotics', subCategory: 'Cephalosporins', price: 290, buyingPrice: 190, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 15, description: 'First-generation cephalosporin antibiotic used to treat skin and respiratory infections.', productType: 'medicine' },
-  { id: 'm11', name: 'Coartem 20/120mg Tablet', genericName: 'Artemether + Lumefantrine', barcode: '6281001123466', sku: 'MED-COA-120', category: 'Antiprotozoal', subCategory: 'Antimalarial / Malaria', price: 210, buyingPrice: 140, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 25, description: 'Artemisinin-based combination therapy (ACT) for acute uncomplicated malaria.', productType: 'medicine' },
-  { id: 'm12', name: 'Augmentin 625mg Tablet', genericName: 'Amoxicillin + Clavulanic Acid', barcode: '6281001123467', sku: 'MED-AUG-625', category: 'Antibiotics', subCategory: 'Penicillins', price: 540, buyingPrice: 380, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 20, description: 'Broad-spectrum antibacterial combination effective against beta-lactamase producing organisms.', productType: 'medicine' },
-  { id: 'm13', name: 'Ciprofloxacin 500mg', genericName: 'Ciprofloxacin Hydrochloride', barcode: '6281001123468', sku: 'MED-CIP-500', category: 'Antibiotics', subCategory: 'Fluoroquinolones', price: 190, buyingPrice: 110, isPrescriptionRequired: true, unit: 'Box', minStockLevel: 20, description: 'Broad-spectrum fluoroquinolone antibiotic for urinary tract and systemic infections.', productType: 'medicine' },
-  
-  // Cosmetics & Skincare Products across all subcategories
-  { id: 'c_m1', name: 'Hydrating Hyaluronic Acid Serum 30ml', genericName: 'Facial Serum', barcode: '6281001123901', sku: 'COS-SER-30', category: 'Skin Care', price: 850, buyingPrice: 550, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 10, description: 'Deep hydrating facial serum for smooth, glowing skin.', productType: 'cosmetics', imageUrl: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=300&q=80' },
-  { id: 'c_m2', name: 'UV Protection Sunscreen SPF 50+', genericName: 'Sunscreen Lotion', barcode: '6281001123902', sku: 'COS-SUN-50', category: 'Sunscreen', price: 620, buyingPrice: 400, isPrescriptionRequired: false, unit: 'Tube', minStockLevel: 15, description: 'Broad spectrum UVA/UVB high protection non-greasy sunscreen lotion.', productType: 'cosmetics', imageUrl: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=300&q=80' },
-  { id: 'c_m3', name: 'Nourishing Soft Body Wash 400ml', genericName: 'Shower Gel & Body Wash', barcode: '6281001123903', sku: 'COS-LOT-400', category: 'Body Wash', price: 480, buyingPrice: 320, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 20, description: 'Moisturizing shower gel with natural shea butter and Vitamin E.', productType: 'cosmetics', imageUrl: 'https://images.unsplash.com/photo-1526947425960-945c6e72858f?w=300&q=80' },
-  { id: 'c_m4', name: 'Volumizing Herbal Shampoo 500ml', genericName: 'Hair Shampoo', barcode: '6281001123904', sku: 'COS-SHM-500', category: 'Shampoo', price: 390, buyingPrice: 250, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 15, description: 'Revitalizing herbal shampoo for hair shine, strength, and volume.', productType: 'cosmetics', imageUrl: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?w=300&q=80' },
-  { id: 'c_m5', name: 'Argan Oil Moisture Repair Conditioner 350ml', genericName: 'Hair Conditioner', barcode: '6281001123905', sku: 'COS-CND-350', category: 'Conditioner', price: 420, buyingPrice: 280, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 12, description: 'Deep hair conditioner enriched with organic Argan oil for soft, tangle-free hair.', productType: 'cosmetics' },
-  { id: 'c_m6', name: 'Creamy Milk Moisturizing Soap Bar 100g', genericName: 'Beauty Soap', barcode: '6281001123906', sku: 'COS-SOP-100', category: 'Soap', price: 95, buyingPrice: 50, isPrescriptionRequired: false, unit: 'Bar', minStockLevel: 40, description: 'Gentle cleansing soap bar with rich milk protein moisturizer.', productType: 'cosmetics' },
-  { id: 'c_m7', name: 'Gentle Baby & Kids Sensitive Skin Lotion 250ml', genericName: 'Baby Body Lotion', barcode: '6281001123907', sku: 'COS-KID-250', category: 'Kids Product', price: 340, buyingPrice: 220, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 15, description: 'Hypoallergenic soothing baby lotion for delicate sensitive skin.', productType: 'cosmetics' },
-  { id: 'c_m8', name: 'Keratin Deep Repair Hair Mask 250g', genericName: 'Hair Mask Treatment', barcode: '6281001123908', sku: 'COS-TRT-250', category: 'Hair Treatment', price: 580, buyingPrice: 380, isPrescriptionRequired: false, unit: 'Jar', minStockLevel: 10, description: 'Intensive keratin therapy mask to restore damaged hair fibers.', productType: 'cosmetics' },
-  { id: 'c_m9', name: 'Luxury Floral Eau De Parfum Spray 100ml', genericName: 'Perfume Spray', barcode: '6281001123909', sku: 'COS-PRF-100', category: 'Parfum', price: 1450, buyingPrice: 900, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 8, description: 'Long-lasting premium floral fragrance perfume spray.', productType: 'cosmetics' },
-  { id: 'c_m10', name: '24H Active Antiperspirant Body Spray 150ml', genericName: 'Deodorant Spray', barcode: '6281001123910', sku: 'COS-DEO-150', category: 'Deodorant', price: 290, buyingPrice: 180, isPrescriptionRequired: false, unit: 'Can', minStockLevel: 25, description: '24-hour odor defense refreshing antiperspirant spray.', productType: 'cosmetics' },
-  { id: 'c_m11', name: 'Soft Care Gentle Roll-On Deodorant 50ml', genericName: 'Roll-On Deodorant', barcode: '6281001123911', sku: 'COS-ROL-50', category: 'Stick and Roll Body Deodorants', price: 185, buyingPrice: 110, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 30, description: 'Alcohol-free roll-on deodorant for sensitive underarms.', productType: 'cosmetics' },
-  { id: 'c_m12', name: 'Advanced Whitening Mint Toothpaste 100ml', genericName: 'Whitening Toothpaste', barcode: '6281001123912', sku: 'COS-ORL-100', category: 'Oral Care', price: 160, buyingPrice: 95, isPrescriptionRequired: false, unit: 'Tube', minStockLevel: 35, description: 'Triple-action enamel protection and whitening toothpaste.', productType: 'cosmetics' },
-  { id: 'c_m13', name: 'Biotin Hair, Skin & Nails Beauty Gummies 60s', genericName: 'Beauty Supplement', barcode: '6281001123913', sku: 'COS-VIT-60', category: 'Vitamins and Supplement', price: 780, buyingPrice: 500, isPrescriptionRequired: false, unit: 'Bottle', minStockLevel: 15, description: 'Delicious biotin and vitamin C gummies for hair growth and radiant skin.', productType: 'cosmetics' },
-  { id: 'c_m14', name: 'Coconut Hair Nourishing Styling Cream 150ml', genericName: 'Hair Cream', barcode: '6281001123914', sku: 'COS-HAI-150', category: 'Hair Product', price: 310, buyingPrice: 190, isPrescriptionRequired: false, unit: 'Tub', minStockLevel: 20, description: 'Non-sticky styling and nourishing cream for smooth hair.', productType: 'cosmetics' }
-];
+const INITIAL_SUPPLIERS: Supplier[] = [];
+const INITIAL_MEDICINES: Medicine[] = [];
+const INITIAL_STOCK_ITEMS: StockItem[] = [];
+const INITIAL_CUSTOMERS: Customer[] = [];
 
 // Helper to calculate dates
 const getRelativeDateStr = (offsetDays: number): string => {
@@ -109,55 +74,6 @@ const getRelativeDateStr = (offsetDays: number): string => {
   d.setDate(d.getDate() + offsetDays);
   return d.toISOString().split('T')[0];
 };
-
-const INITIAL_STOCK_ITEMS: StockItem[] = [
-  // b1 Main branch stocks
-  { id: 'st1', medicineId: 'm1', branchId: 'b1', batchNumber: 'AMX-2026-01', expiryDate: getRelativeDateStr(120), quantity: 35, buyingPrice: 120, supplierId: 's1', isDamaged: false },
-  { id: 'st2', medicineId: 'm2', branchId: 'b1', batchNumber: 'PAR-2026-04', expiryDate: getRelativeDateStr(240), quantity: 120, buyingPrice: 25, supplierId: 's1', isDamaged: false },
-  { id: 'st3', medicineId: 'm2', branchId: 'b1', batchNumber: 'PAR-2026-EX', expiryDate: getRelativeDateStr(-5), quantity: 15, buyingPrice: 25, supplierId: 's1', isDamaged: false }, // Expired
-  { id: 'st4', medicineId: 'm3', branchId: 'b1', batchNumber: 'MET-2026-08', expiryDate: getRelativeDateStr(30), quantity: 8, buyingPrice: 160, supplierId: 's2', isDamaged: false }, // Low Stock and Expiring soon
-  { id: 'st5', medicineId: 'm4', branchId: 'b1', batchNumber: 'ATR-2026-03', expiryDate: getRelativeDateStr(45), quantity: 18, buyingPrice: 280, supplierId: 's2', isDamaged: false },
-  { id: 'st6', medicineId: 'm5', branchId: 'b1', batchNumber: 'OMP-2026-11', expiryDate: getRelativeDateStr(360), quantity: 40, buyingPrice: 55, supplierId: 's1', isDamaged: false },
-  
-  // b2 branch stocks
-  { id: 'st7', medicineId: 'm1', branchId: 'b2', batchNumber: 'AMX-2026-02', expiryDate: getRelativeDateStr(150), quantity: 12, buyingPrice: 120, supplierId: 's1', isDamaged: false }, // Low Stock
-  { id: 'st8', medicineId: 'm2', branchId: 'b2', batchNumber: 'PAR-2026-05', expiryDate: getRelativeDateStr(210), quantity: 95, buyingPrice: 25, supplierId: 's1', isDamaged: false },
-  { id: 'st9', medicineId: 'm3', branchId: 'b2', batchNumber: 'MET-2026-09', expiryDate: getRelativeDateStr(180), quantity: 22, buyingPrice: 160, supplierId: 's2', isDamaged: false },
-  { id: 'st10', medicineId: 'm5', branchId: 'b2', batchNumber: 'OMP-2026-12', expiryDate: getRelativeDateStr(320), quantity: 3, buyingPrice: 55, supplierId: 's3', isDamaged: true, notes: 'Water damage' }, // Low stock & Damaged
-
-  // b3 branch stocks
-  { id: 'st11', medicineId: 'm1', branchId: 'b3', batchNumber: 'AMX-2026-03', expiryDate: getRelativeDateStr(100), quantity: 45, buyingPrice: 120, supplierId: 's1', isDamaged: false },
-  { id: 'st12', medicineId: 'm4', branchId: 'b3', batchNumber: 'ATR-2026-04', expiryDate: getRelativeDateStr(90), quantity: 5, buyingPrice: 280, supplierId: 's2', isDamaged: false }, // Low Stock
-  { id: 'st13', medicineId: 'm6', branchId: 'b3', batchNumber: 'IBU-2026-10', expiryDate: getRelativeDateStr(400), quantity: 80, buyingPrice: 38, supplierId: 's3', isDamaged: false },
-  { id: 'st14', medicineId: 'm7', branchId: 'b3', batchNumber: 'AZM-2026-01', expiryDate: getRelativeDateStr(15), quantity: 20, buyingPrice: 300, supplierId: 's2', isDamaged: false },
-  { id: 'st15', medicineId: 'm9', branchId: 'b1', batchNumber: 'FLU-2026-01', expiryDate: getRelativeDateStr(280), quantity: 40, buyingPrice: 100, supplierId: 's1', isDamaged: false },
-  { id: 'st15_b', medicineId: 'm10', branchId: 'b1', batchNumber: 'CFX-2026-01', expiryDate: getRelativeDateStr(360), quantity: 45, buyingPrice: 190, supplierId: 's1', isDamaged: false },
-  { id: 'st15_c', medicineId: 'm11', branchId: 'b1', batchNumber: 'COA-2026-01', expiryDate: getRelativeDateStr(420), quantity: 60, buyingPrice: 140, supplierId: 's1', isDamaged: false },
-  { id: 'st15_d', medicineId: 'm12', branchId: 'b1', batchNumber: 'AUG-2026-01', expiryDate: getRelativeDateStr(200), quantity: 30, buyingPrice: 380, supplierId: 's2', isDamaged: false },
-  { id: 'st15_e', medicineId: 'm13', branchId: 'b1', batchNumber: 'CIP-2026-01', expiryDate: getRelativeDateStr(300), quantity: 50, buyingPrice: 110, supplierId: 's3', isDamaged: false },
-  
-  // Cosmetics stocks
-  { id: 'st16', medicineId: 'c_m1', branchId: 'b1', batchNumber: 'COS-SER-2026', expiryDate: getRelativeDateStr(500), quantity: 25, buyingPrice: 550, supplierId: 's2', isDamaged: false },
-  { id: 'st17', medicineId: 'c_m2', branchId: 'b1', batchNumber: 'COS-SUN-2026', expiryDate: getRelativeDateStr(600), quantity: 30, buyingPrice: 400, supplierId: 's2', isDamaged: false },
-  { id: 'st18', medicineId: 'c_m3', branchId: 'b1', batchNumber: 'COS-LOT-2026', expiryDate: getRelativeDateStr(700), quantity: 40, buyingPrice: 320, supplierId: 's2', isDamaged: false },
-  { id: 'st19', medicineId: 'c_m4', branchId: 'b1', batchNumber: 'COS-SHM-2026', expiryDate: getRelativeDateStr(550), quantity: 50, buyingPrice: 250, supplierId: 's2', isDamaged: false },
-  { id: 'st20', medicineId: 'c_m5', branchId: 'b1', batchNumber: 'COS-CND-2026', expiryDate: getRelativeDateStr(650), quantity: 35, buyingPrice: 280, supplierId: 's2', isDamaged: false },
-  { id: 'st21', medicineId: 'c_m6', branchId: 'b1', batchNumber: 'COS-SOP-2026', expiryDate: getRelativeDateStr(800), quantity: 100, buyingPrice: 50, supplierId: 's2', isDamaged: false },
-  { id: 'st22', medicineId: 'c_m7', branchId: 'b1', batchNumber: 'COS-KID-2026', expiryDate: getRelativeDateStr(450), quantity: 40, buyingPrice: 220, supplierId: 's2', isDamaged: false },
-  { id: 'st23', medicineId: 'c_m8', branchId: 'b1', batchNumber: 'COS-TRT-2026', expiryDate: getRelativeDateStr(520), quantity: 20, buyingPrice: 380, supplierId: 's2', isDamaged: false },
-  { id: 'st24', medicineId: 'c_m9', branchId: 'b1', batchNumber: 'COS-PRF-2026', expiryDate: getRelativeDateStr(900), quantity: 15, buyingPrice: 900, supplierId: 's2', isDamaged: false },
-  { id: 'st25', medicineId: 'c_m10', branchId: 'b1', batchNumber: 'COS-DEO-2026', expiryDate: getRelativeDateStr(600), quantity: 60, buyingPrice: 180, supplierId: 's2', isDamaged: false },
-  { id: 'st26', medicineId: 'c_m11', branchId: 'b1', batchNumber: 'COS-ROL-2026', expiryDate: getRelativeDateStr(620), quantity: 45, buyingPrice: 110, supplierId: 's2', isDamaged: false },
-  { id: 'st27', medicineId: 'c_m12', branchId: 'b1', batchNumber: 'COS-ORL-2026', expiryDate: getRelativeDateStr(720), quantity: 80, buyingPrice: 95, supplierId: 's2', isDamaged: false },
-  { id: 'st28', medicineId: 'c_m13', branchId: 'b1', batchNumber: 'COS-VIT-2026', expiryDate: getRelativeDateStr(400), quantity: 30, buyingPrice: 500, supplierId: 's2', isDamaged: false },
-  { id: 'st29', medicineId: 'c_m14', branchId: 'b1', batchNumber: 'COS-HAI-2026', expiryDate: getRelativeDateStr(580), quantity: 40, buyingPrice: 190, supplierId: 's2', isDamaged: false }
-];
-
-const INITIAL_CUSTOMERS: Customer[] = [
-  { id: 'c1', name: 'Chala Tolossa', phone: '+251-91-1223344', email: 'chala.t@gmail.com', address: 'Bole, Addis Ababa', loyaltyPoints: 340, creditLimit: 15000, creditBalance: 3200 },
-  { id: 'c2', name: 'Aster Ayele', phone: '+251-91-1334455', email: 'aster.ayele@yahoo.com', address: 'Kazanchis, Addis Ababa', loyaltyPoints: 120, creditLimit: 5000, creditBalance: 0 },
-  { id: 'c3', name: 'Dr. Dawit Mezgebu', phone: '+251-91-1445566', email: 'dawit.m@clinic.com', address: 'Piazza, Addis Ababa', loyaltyPoints: 850, creditLimit: 50000, creditBalance: 14500 }
-];
 
 export const INITIAL_CATEGORIES: ProductCategory[] = [
   {
@@ -544,405 +460,15 @@ export const INITIAL_CATEGORIES: ProductCategory[] = [
   }
 ];
 
-// Seed sales for the past few days to populate charts
-const INITIAL_SALES: Sale[] = [
-  {
-    id: 'sal1',
-    invoiceNumber: 'INV-2026-0001',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-4),
-    time: '10:15',
-    cashierId: 'u4',
-    cashierName: 'Hana Assefa',
-    customerId: 'c1',
-    customerName: 'Chala Tolossa',
-    subtotal: 180 + 90,
-    discount: 10,
-    vat: 39, // (270 - 10) * 0.15 = 39
-    total: 299,
-    paymentMethod: 'Cash',
-    status: 'Completed',
-    items: [
-      { id: 'si1', medicineId: 'm1', medicineName: 'Amoxicillin 500mg', batchNumber: 'AMX-2026-01', quantity: 1, unitPrice: 180, discount: 5, vatAmount: 26.25, total: 201.25 },
-      { id: 'si2', medicineId: 'm5', medicineName: 'Omeprazole 20mg', batchNumber: 'OMP-2026-11', quantity: 1, unitPrice: 90, discount: 5, vatAmount: 12.75, total: 97.75 }
-    ]
-  },
-  {
-    id: 'sal2',
-    invoiceNumber: 'INV-2026-0002',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-3),
-    time: '14:30',
-    cashierId: 'u4',
-    cashierName: 'Hana Assefa',
-    customerId: 'c3',
-    customerName: 'Dr. Dawit Mezgebu',
-    subtotal: 760, // 2 * Atorvastatin (380)
-    discount: 50,
-    vat: 106.5, // (760 - 50) * 0.15 = 106.5
-    total: 816.5,
-    paymentMethod: 'Credit',
-    status: 'Completed',
-    items: [
-      { id: 'si3', medicineId: 'm4', medicineName: 'Atorvastatin 20mg', batchNumber: 'ATR-2026-03', quantity: 2, unitPrice: 380, discount: 50, vatAmount: 106.5, total: 816.5 }
-    ]
-  },
-  {
-    id: 'sal3',
-    invoiceNumber: 'INV-2026-0003',
-    branchId: 'b2',
-    branchName: 'Sonan Pharmacy No. 2',
-    date: getRelativeDateStr(-2),
-    time: '11:45',
-    cashierId: 'u2',
-    cashierName: 'Selam Tesfaye',
-    subtotal: 90, // 2 * Paracetamol (45)
-    discount: 0,
-    vat: 13.5, // 90 * 0.15 = 13.5
-    total: 103.5,
-    paymentMethod: 'Cash',
-    status: 'Completed',
-    items: [
-      { id: 'si4', medicineId: 'm2', medicineName: 'Paracetamol 500mg', batchNumber: 'PAR-2026-05', quantity: 2, unitPrice: 45, discount: 0, vatAmount: 13.5, total: 103.5 }
-    ]
-  },
-  {
-    id: 'sal4',
-    invoiceNumber: 'INV-2026-0004',
-    branchId: 'b3',
-    branchName: 'Sonan Pharmacy No. 3',
-    date: getRelativeDateStr(-1),
-    time: '16:20',
-    cashierId: 'u1',
-    cashierName: 'Admin',
-    subtotal: 540, // 3 * Amoxicillin (180)
-    discount: 40,
-    vat: 75, // (540-40)*0.15 = 75
-    total: 575,
-    paymentMethod: 'Card',
-    status: 'Completed',
-    items: [
-      { id: 'si5', medicineId: 'm1', medicineName: 'Amoxicillin 500mg', batchNumber: 'AMX-2026-03', quantity: 3, unitPrice: 180, discount: 40, vatAmount: 75, total: 575 }
-    ]
-  },
-  {
-    id: 'sal5',
-    invoiceNumber: 'INV-2026-0005',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(0),
-    time: '09:00',
-    cashierId: 'u4',
-    cashierName: 'Hana Assefa',
-    customerId: 'c1',
-    customerName: 'Chala Tolossa',
-    subtotal: 180,
-    discount: 0,
-    vat: 27,
-    total: 207,
-    paymentMethod: 'Cash',
-    status: 'Completed',
-    items: [
-      { id: 'si6', medicineId: 'm1', medicineName: 'Amoxicillin 500mg', batchNumber: 'AMX-2026-01', quantity: 1, unitPrice: 180, discount: 0, vatAmount: 27, total: 207 }
-    ]
-  },
-  {
-    id: 'sal6',
-    invoiceNumber: 'INV-2026-0006',
-    branchId: 'b2',
-    branchName: 'Sonan Pharmacy No. 2',
-    date: getRelativeDateStr(0),
-    time: '10:30',
-    cashierId: 'u2',
-    cashierName: 'Selam Tesfaye',
-    subtotal: 300,
-    discount: 10,
-    vat: 43.5,
-    total: 333.5,
-    paymentMethod: 'Cash',
-    status: 'Completed',
-    items: [
-      { id: 'si7', medicineId: 'm2', medicineName: 'Paracetamol 500mg', batchNumber: 'PAR-2026-05', quantity: 4, unitPrice: 45, discount: 5, vatAmount: 26.25, total: 201.25 },
-      { id: 'si8', medicineId: 'c_m6', medicineName: 'Johnson Baby Soap 100g', batchNumber: 'COS-SOP-2026', quantity: 2, unitPrice: 60, discount: 5, vatAmount: 17.25, total: 132.25 }
-    ]
-  },
-  {
-    id: 'sal7',
-    invoiceNumber: 'INV-2026-0007',
-    branchId: 'b3',
-    branchName: 'Sonan Pharmacy No. 3',
-    date: getRelativeDateStr(0),
-    time: '11:15',
-    cashierId: 'u1',
-    cashierName: 'Admin',
-    subtotal: 500,
-    discount: 20,
-    vat: 72,
-    total: 552,
-    paymentMethod: 'Bank CBE',
-    status: 'Completed',
-    items: [
-      { id: 'si9', medicineId: 'm3', medicineName: 'Metformin 850mg', batchNumber: 'MET-2026-08', quantity: 2, unitPrice: 250, discount: 20, vatAmount: 72, total: 552 }
-    ]
-  }
-];
+const INITIAL_SALES: Sale[] = [];
+const INITIAL_PURCHASE_ORDERS: PurchaseOrder[] = [];
+const INITIAL_STOCK_TRANSFERS: StockTransfer[] = [];
+const INITIAL_EXPENSES: Expense[] = [];
+const INITIAL_AUDIT_LOGS: AuditLog[] = [];
+const INITIAL_BACKUP_RECORDS: BackupRecord[] = [];
 
-const INITIAL_PURCHASE_ORDERS: PurchaseOrder[] = [
-  {
-    id: 'po1',
-    poNumber: 'PO-2026-0001',
-    supplierId: 's1',
-    supplierName: 'Medco Pharmaceuticals PLC',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-10),
-    total: 2400, // 20 boxes of Amoxicillin @ 120
-    status: 'Received',
-    items: [
-      { id: 'pi1', medicineId: 'm1', medicineName: 'Amoxicillin 500mg', quantity: 20, unitPrice: 120, total: 2400 }
-    ],
-    receivedDate: getRelativeDateStr(-8),
-    receivedBy: 'Tariku Alemu'
-  },
-  {
-    id: 'po2',
-    poNumber: 'PO-2026-0002',
-    supplierId: 's2',
-    supplierName: 'Sonan Distributors Group',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-2),
-    total: 4200, // 15 Metformin (160) + 5 Atorvastatin (280) = 2400 + 1400 = 3800
-    status: 'Sent',
-    items: [
-      { id: 'pi2', medicineId: 'm3', medicineName: 'Metformin 850mg', quantity: 15, unitPrice: 160, total: 2400 },
-      { id: 'pi3', medicineId: 'm4', medicineName: 'Atorvastatin 20mg', quantity: 5, unitPrice: 280, total: 1400 }
-    ]
-  }
-];
-
-const INITIAL_STOCK_TRANSFERS: StockTransfer[] = [
-  {
-    id: 't1',
-    transferNumber: 'ST-2026-0001',
-    sourceBranchId: 'b1',
-    sourceBranchName: 'Sonan Pharmacy Main Branch',
-    targetBranchId: 'b2',
-    targetBranchName: 'Sonan Pharmacy No. 2',
-    transferType: 'Internal',
-    date: getRelativeDateStr(-3),
-    status: 'Received',
-    items: [
-      { medicineId: 'm1', medicineName: 'Amoxicillin 500mg', quantity: 5, batchNumber: 'AMX-2026-01', expiryDate: getRelativeDateStr(120) }
-    ],
-    requestedBy: 'Selam Tesfaye',
-    processedBy: 'Admin'
-  },
-  {
-    id: 't2',
-    transferNumber: 'ST-2026-0002',
-    sourceBranchId: 'b1',
-    sourceBranchName: 'Sonan Pharmacy Main Branch',
-    targetBranchId: 'b3',
-    targetBranchName: 'Sonan Pharmacy No. 3',
-    transferType: 'Internal',
-    date: getRelativeDateStr(0),
-    status: 'Pending',
-    items: [
-      { medicineId: 'm2', medicineName: 'Paracetamol 500mg', quantity: 20, batchNumber: 'PAR-2026-04', expiryDate: getRelativeDateStr(240) }
-    ],
-    requestedBy: 'Dr. Girma Wolde'
-  }
-];
-
-const INITIAL_EXPENSES: Expense[] = [
-  { id: 'e1', branchId: 'b1', branchName: 'Sonan Pharmacy Main Branch', date: getRelativeDateStr(-5), category: 'Utilities', amount: 3500, description: 'Electricity and high-speed internet bill for main clinic', recordedBy: 'Martha Bekele' },
-  { id: 'e2', branchId: 'b1', branchName: 'Sonan Pharmacy Main Branch', date: getRelativeDateStr(-2), category: 'Salaries', amount: 12000, description: 'Part-time intern pharmacist salary', recordedBy: 'Martha Bekele' },
-  { id: 'e3', branchId: 'b2', branchName: 'Sonan Pharmacy No. 2', date: getRelativeDateStr(-3), category: 'Rent', amount: 8000, description: 'Monthly storage annex rent', recordedBy: 'Selam Tesfaye' }
-];
-
-const INITIAL_AUDIT_LOGS: AuditLog[] = [
-  { id: 'l1', date: getRelativeDateStr(-5), time: '09:00', userId: 'u1', username: 'admin', role: 'Super Administrator', action: 'Login', branchId: 'all', branchName: 'All Branches', ipAddress: '192.168.1.10', details: 'Successful administrator login with Two-Factor Verification.' },
-  { id: 'l2', date: getRelativeDateStr(-5), time: '14:35', userId: 'u3', username: 'pharmacist1', role: 'Pharmacist', action: 'Stock Alert Resolved', branchId: 'b1', branchName: 'Sonan Pharmacy Main Branch', ipAddress: '192.168.1.45', details: 'Stock alert flagged for medicine Metformin 850mg (Batch MET-2026-08)' },
-  { id: 'l3', date: getRelativeDateStr(-1), time: '17:45', userId: 'u1', username: 'admin', role: 'Super Administrator', action: 'Database Backup', branchId: 'all', branchName: 'All Branches', ipAddress: '192.168.1.10', details: 'Manual database full backup triggered. Destination: backup_sonan_20260627_full.json' }
-];
-
-const INITIAL_BACKUP_RECORDS: BackupRecord[] = [
-  {
-    id: 'back1',
-    date: getRelativeDateStr(-5),
-    time: '23:00',
-    type: 'Full',
-    branchName: 'All Branches',
-    filename: 'sonan_backup_20260623_auto.json',
-    size: '184 KB',
-    createdBy: 'System Scheduler',
-    scheduleType: 'Auto',
-    status: 'Success',
-    logs: [
-      'Initializing backup procedure...',
-      'Target database schema: Sonan Pharmacy Multi-Branch Relational JSON V2',
-      'Table [branches]: 3 records compiled successfully.',
-      'Table [users]: 7 records compiled successfully.',
-      'Table [medicines]: 8 records compiled successfully.',
-      'Table [stockItems]: 14 records compiled successfully.',
-      'Table [suppliers]: 3 records compiled successfully.',
-      'Table [sales]: 3 records compiled successfully.',
-      'Table [purchaseOrders]: 1 record compiled successfully.',
-      'Table [expenses]: 2 records compiled successfully.',
-      'Table [auditLogs]: 2 records compiled successfully.',
-      'Backup compression complete. Hash: 8ae9b34cd56aef19',
-      'Saved successfully on Cloud Backups Storage.'
-    ]
-  }
-];
-
-export const INITIAL_PAYROLL_PROFILES: PayrollProfile[] = [
-  {
-    id: 'pay_prof_1',
-    userId: 'u1',
-    employeeName: 'Admin Super User',
-    employeeCode: 'EMP-001',
-    role: 'Super Administrator',
-    branchId: 'all',
-    employmentType: 'Full-time',
-    hireDate: '2024-01-15',
-    phone: '+251-91-1223344',
-    email: 'admin.super@sonanpharma.com',
-    tinNumber: '1092837465',
-    pensionNumber: 'PO-2024-001',
-    bankName: 'Commercial Bank of Ethiopia (CBE)',
-    accountNumber: '1000192837465',
-    baseSalary: 35000,
-    allowances: { housing: 4000, transport: 2500, medical: 1500, position: 2000, other: 0 },
-    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
-    status: 'Active',
-    createdAt: '2024-01-15T08:00:00.000Z'
-  },
-  {
-    id: 'pay_prof_2',
-    employeeName: 'Dr. Dawit Abebe',
-    employeeCode: 'EMP-002',
-    role: 'Pharmacist',
-    branchId: 'b1',
-    employmentType: 'Full-time',
-    hireDate: '2024-03-01',
-    phone: '+251-91-2334455',
-    email: 'dawit.pharmacist@sonanpharma.com',
-    tinNumber: '1083746592',
-    pensionNumber: 'PO-2024-002',
-    bankName: 'Commercial Bank of Ethiopia (CBE)',
-    accountNumber: '1000283746591',
-    baseSalary: 28000,
-    allowances: { housing: 3000, transport: 2000, medical: 1000, position: 1500, other: 0 },
-    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
-    status: 'Active',
-    createdAt: '2024-03-01T08:00:00.000Z'
-  },
-  {
-    id: 'pay_prof_3',
-    employeeName: 'Selam Tesfaye',
-    employeeCode: 'EMP-003',
-    role: 'Branch Manager',
-    branchId: 'b2',
-    employmentType: 'Full-time',
-    hireDate: '2024-04-10',
-    phone: '+251-91-3445566',
-    email: 'selam.manager@sonanpharma.com',
-    tinNumber: '1074659283',
-    pensionNumber: 'PO-2024-003',
-    bankName: 'Awash Bank',
-    accountNumber: '01420987654300',
-    baseSalary: 25000,
-    allowances: { housing: 2500, transport: 1800, medical: 1000, position: 1200, other: 0 },
-    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
-    status: 'Active',
-    createdAt: '2024-04-10T08:00:00.000Z'
-  },
-  {
-    id: 'pay_prof_4',
-    employeeName: 'Tigist Haile',
-    employeeCode: 'EMP-004',
-    role: 'Cashier',
-    branchId: 'b1',
-    employmentType: 'Full-time',
-    hireDate: '2024-06-01',
-    phone: '+251-91-4556677',
-    email: 'tigist.cashier@sonanpharma.com',
-    tinNumber: '1065928374',
-    pensionNumber: 'PO-2024-004',
-    bankName: 'Commercial Bank of Ethiopia (CBE)',
-    accountNumber: '1000374659281',
-    baseSalary: 14000,
-    allowances: { housing: 1500, transport: 1200, medical: 500, position: 0, other: 0 },
-    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
-    status: 'Active',
-    createdAt: '2024-06-01T08:00:00.000Z'
-  },
-  {
-    id: 'pay_prof_5',
-    employeeName: 'Yohannes Bekele',
-    employeeCode: 'EMP-005',
-    role: 'Store Keeper',
-    branchId: 'b1',
-    employmentType: 'Full-time',
-    hireDate: '2024-05-15',
-    phone: '+251-91-5667788',
-    email: 'yohannes.store@sonanpharma.com',
-    tinNumber: '1059283746',
-    pensionNumber: 'PO-2024-005',
-    bankName: 'Bank of Abyssinia (BOA)',
-    accountNumber: '883920194820',
-    baseSalary: 17000,
-    allowances: { housing: 1800, transport: 1500, medical: 600, position: 0, other: 0 },
-    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
-    status: 'Active',
-    createdAt: '2024-05-15T08:00:00.000Z'
-  },
-  {
-    id: 'pay_prof_6',
-    employeeName: 'Helen Girma',
-    employeeCode: 'EMP-006',
-    role: 'Accountant',
-    branchId: 'b1',
-    employmentType: 'Full-time',
-    hireDate: '2024-02-20',
-    phone: '+251-91-6778899',
-    email: 'helen.finance@sonanpharma.com',
-    tinNumber: '1048392019',
-    pensionNumber: 'PO-2024-006',
-    bankName: 'Dashen Bank',
-    accountNumber: '502938472910',
-    baseSalary: 23000,
-    allowances: { housing: 2200, transport: 1800, medical: 800, position: 1000, other: 0 },
-    deductions: { pensionEmployeePercent: 7, pensionEmployerPercent: 11, healthInsurance: 0, unionFee: 0, otherDeductions: 0 },
-    status: 'Active',
-    createdAt: '2024-02-20T08:00:00.000Z'
-  }
-];
-
-export const INITIAL_SALARY_ADVANCES: SalaryAdvance[] = [
-  {
-    id: 'adv_1',
-    employeeId: 'pay_prof_4',
-    employeeName: 'Tigist Haile',
-    employeeCode: 'EMP-004',
-    branchId: 'b1',
-    amount: 3000,
-    remainingBalance: 1500,
-    monthlyDeduction: 1500,
-    reason: 'Emergency appliance repair',
-    requestDate: getRelativeDateStr(-20),
-    approvedDate: getRelativeDateStr(-18),
-    approvedBy: 'Admin',
-    status: 'Approved',
-    repayments: [
-      { date: getRelativeDateStr(-10), amount: 1500, notes: 'Auto-deducted from prior cycle' }
-    ]
-  }
-];
+export const INITIAL_PAYROLL_PROFILES: PayrollProfile[] = [];
+export const INITIAL_SALARY_ADVANCES: SalaryAdvance[] = [];
 
 export const INITIAL_ATTENDANCE_SETTINGS: AttendanceSettings = {
   enabled: true,
@@ -955,149 +481,7 @@ export const INITIAL_ATTENDANCE_SETTINGS: AttendanceSettings = {
   overtimeThresholdHours: 8
 };
 
-export const INITIAL_STAFF_ATTENDANCE: StaffAttendance[] = [
-  {
-    id: 'att_seed_1',
-    userId: 'u_pharm',
-    employeeCode: 'EMP-002',
-    userName: 'Dr. Dawit Abebe',
-    userRole: 'Pharmacist',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(0),
-    loginTime: '08:25 AM',
-    logoutTime: '',
-    loginTimestamp: new Date().setHours(8, 25, 0, 0),
-    status: 'present',
-    shiftType: 'Morning',
-    method: 'auto_login',
-    device: 'POS-Terminal-01',
-    ipAddress: '192.168.1.15',
-    notes: 'Clocked in on duty. Morning shift dispensary.'
-  },
-  {
-    id: 'att_seed_2',
-    userId: 'u_cash',
-    employeeCode: 'EMP-004',
-    userName: 'Tigist Haile',
-    userRole: 'Cashier',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(0),
-    loginTime: '08:32 AM',
-    logoutTime: '',
-    loginTimestamp: new Date().setHours(8, 32, 0, 0),
-    status: 'present',
-    shiftType: 'Morning',
-    method: 'auto_login',
-    device: 'POS-Cashier-01',
-    ipAddress: '192.168.1.18',
-    notes: 'Shift started on register 1.'
-  },
-  {
-    id: 'att_seed_3',
-    userId: 'u_mgr',
-    employeeCode: 'EMP-003',
-    userName: 'Selam Tesfaye',
-    userRole: 'Branch Manager',
-    branchId: 'b2',
-    branchName: 'Sonan Pharmacy No. 2',
-    date: getRelativeDateStr(0),
-    loginTime: '08:50 AM',
-    logoutTime: '',
-    loginTimestamp: new Date().setHours(8, 50, 0, 0),
-    status: 'late',
-    shiftType: 'Morning',
-    method: 'auto_login',
-    device: 'Manager-Laptop',
-    ipAddress: '192.168.2.10',
-    notes: 'Traffic delay on Ring Road. Checked in 20 mins late.'
-  },
-  {
-    id: 'att_seed_4',
-    userId: 'u_pharm',
-    employeeCode: 'EMP-002',
-    userName: 'Dr. Dawit Abebe',
-    userRole: 'Pharmacist',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-1),
-    loginTime: '08:20 AM',
-    logoutTime: '05:30 PM',
-    loginTimestamp: new Date(Date.now() - 86400000).setHours(8, 20, 0, 0),
-    logoutTimestamp: new Date(Date.now() - 86400000).setHours(17, 30, 0, 0),
-    durationMinutes: 550,
-    status: 'completed',
-    shiftType: 'Full Day',
-    method: 'auto_login',
-    device: 'POS-Terminal-01',
-    ipAddress: '192.168.1.15',
-    notes: 'Full day clinical shift completed with 10 mins overtime.'
-  },
-  {
-    id: 'att_seed_5',
-    userId: 'u_cash',
-    employeeCode: 'EMP-004',
-    userName: 'Tigist Haile',
-    userRole: 'Cashier',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-1),
-    loginTime: '08:30 AM',
-    logoutTime: '05:00 PM',
-    loginTimestamp: new Date(Date.now() - 86400000).setHours(8, 30, 0, 0),
-    logoutTimestamp: new Date(Date.now() - 86400000).setHours(17, 0, 0, 0),
-    durationMinutes: 510,
-    status: 'completed',
-    shiftType: 'Full Day',
-    method: 'auto_login',
-    device: 'POS-Cashier-01',
-    ipAddress: '192.168.1.18',
-    notes: 'Cashier shift signed off.'
-  },
-  {
-    id: 'att_seed_6',
-    userId: 'u_store',
-    employeeCode: 'EMP-005',
-    userName: 'Yohannes Bekele',
-    userRole: 'Store Keeper',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-1),
-    loginTime: '08:15 AM',
-    logoutTime: '05:15 PM',
-    loginTimestamp: new Date(Date.now() - 86400000).setHours(8, 15, 0, 0),
-    logoutTimestamp: new Date(Date.now() - 86400000).setHours(17, 15, 0, 0),
-    durationMinutes: 540,
-    status: 'completed',
-    shiftType: 'Full Day',
-    method: 'auto_login',
-    device: 'Store-Desktop',
-    ipAddress: '192.168.1.22',
-    notes: 'Inventory verification & stock transfer intake completed.'
-  },
-  {
-    id: 'att_seed_7',
-    userId: 'u_fin',
-    employeeCode: 'EMP-006',
-    userName: 'Helen Girma',
-    userRole: 'Accountant',
-    branchId: 'b1',
-    branchName: 'Sonan Pharmacy Main Branch',
-    date: getRelativeDateStr(-2),
-    loginTime: '09:00 AM',
-    logoutTime: '05:30 PM',
-    loginTimestamp: new Date(Date.now() - 172800000).setHours(9, 0, 0, 0),
-    logoutTimestamp: new Date(Date.now() - 172800000).setHours(17, 30, 0, 0),
-    durationMinutes: 510,
-    status: 'completed',
-    shiftType: 'Full Day',
-    method: 'auto_login',
-    device: 'Finance-PC',
-    ipAddress: '192.168.1.30',
-    notes: 'Accounts reconciled & purchase orders verified.'
-  }
-];
+export const INITIAL_STAFF_ATTENDANCE: StaffAttendance[] = [];
 
 export const isSimilarName = (name1: string, name2: string): boolean => {
   if (!name1 || !name2) return false;
@@ -1108,82 +492,19 @@ export const isSimilarName = (name1: string, name2: string): boolean => {
 export const unifyDuplicateMedicines = (db: DbSchema): DbSchema => {
   if (!db.medicines || db.medicines.length === 0) return db;
 
-  const clean = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-
-  // Find canonical representative for each clean name group
-  const canonicalMap: { [cleanName: string]: Medicine } = {};
-  const idMap: { [oldId: string]: string } = {}; // oldId -> canonicalId
-
+  // Only remove exact duplicate IDs or identical object profiles, preserving all user-added items
+  const seenIds = new Set<string>();
   const uniqueMeds: Medicine[] = [];
 
   db.medicines.forEach(m => {
-    const key = clean(m.name);
-    if (!canonicalMap[key]) {
-      canonicalMap[key] = m;
+    if (!m || !m.id) return;
+    if (!seenIds.has(m.id)) {
+      seenIds.add(m.id);
       uniqueMeds.push(m);
-      idMap[m.id] = m.id;
-    } else {
-      idMap[m.id] = canonicalMap[key].id;
     }
   });
 
-  const hasMerged = Object.keys(idMap).some(oldId => idMap[oldId] !== oldId);
-  if (!hasMerged) {
-    db.medicines = uniqueMeds;
-    return db;
-  }
-
-  // Update medicines list
   db.medicines = uniqueMeds;
-
-  // Update stock items
-  if (db.stockItems && Array.isArray(db.stockItems)) {
-    db.stockItems.forEach(st => {
-      if (idMap[st.medicineId]) {
-        st.medicineId = idMap[st.medicineId];
-      }
-    });
-  }
-
-  // Update sales items
-  if (db.sales && Array.isArray(db.sales)) {
-    db.sales.forEach(sale => {
-      if (sale.items && Array.isArray(sale.items)) {
-        sale.items.forEach(item => {
-          if (idMap[item.medicineId]) {
-            item.medicineId = idMap[item.medicineId];
-          }
-        });
-      }
-    });
-  }
-
-  // Update purchase orders
-  if (db.purchaseOrders && Array.isArray(db.purchaseOrders)) {
-    db.purchaseOrders.forEach(po => {
-      if (po.items && Array.isArray(po.items)) {
-        po.items.forEach(item => {
-          if (idMap[item.medicineId]) {
-            item.medicineId = idMap[item.medicineId];
-          }
-        });
-      }
-    });
-  }
-
-  // Update stock transfers
-  if (db.stockTransfers && Array.isArray(db.stockTransfers)) {
-    db.stockTransfers.forEach(st => {
-      if (st.items && Array.isArray(st.items)) {
-        st.items.forEach(item => {
-          if (idMap[item.medicineId]) {
-            item.medicineId = idMap[item.medicineId];
-          }
-        });
-      }
-    });
-  }
-
   return db;
 };
 
@@ -1240,10 +561,188 @@ export const alignMedicinePrices = (medicines: Medicine[]): Medicine[] => {
 
 let cachedDb: DbSchema | null = null;
 let lastDbFileMtime: number = 0;
+const BACKUP_DIR = path.join(DB_DIR, 'backups');
+const DB_BAK_FILE = path.join(DB_DIR, 'db.json.bak');
+let lastBackupSnapshotTime = 0;
+let isWritingToFile = false;
+let pendingWritePayload: DbSchema | null = null;
 
 export const invalidateDbCache = () => {
   cachedDb = null;
   lastDbFileMtime = 0;
+};
+
+// Returns database diagnostic statistics for /api/health/database
+export const getDbHealthStats = () => {
+  try {
+    const dbPath = DB_FILE;
+    const exists = fs.existsSync(dbPath);
+    let fileSize = 0;
+    let modifiedAt = new Date().toISOString();
+    if (exists) {
+      const stat = fs.statSync(dbPath);
+      fileSize = stat.size;
+      modifiedAt = stat.mtime.toISOString();
+    }
+    const current = loadDb();
+    return {
+      status: 'ok',
+      database: exists ? 'connected' : 'ready',
+      databaseStatus: 'healthy',
+      fileSizeKb: Math.round(fileSize / 1024),
+      lastModified: modifiedAt,
+      counts: {
+        branches: current.branches?.length || 0,
+        users: current.users?.length || 0,
+        medicines: current.medicines?.length || 0,
+        stockItems: current.stockItems?.length || 0,
+        suppliers: current.suppliers?.length || 0,
+        sales: current.sales?.length || 0,
+        purchaseOrders: current.purchaseOrders?.length || 0,
+        stockTransfers: current.stockTransfers?.length || 0,
+        customers: current.customers?.length || 0,
+        expenses: current.expenses?.length || 0,
+        auditLogs: current.auditLogs?.length || 0
+      }
+    };
+  } catch (err: any) {
+    return {
+      status: 'degraded',
+      database: 'cached_memory',
+      databaseStatus: 'recovering',
+      error: err?.message || 'DB check failed',
+      counts: {
+        branches: cachedDb?.branches?.length || 0,
+        users: cachedDb?.users?.length || 0,
+        medicines: cachedDb?.medicines?.length || 0,
+        sales: cachedDb?.sales?.length || 0
+      }
+    };
+  }
+};
+
+// Helper to write file atomically and fast using temporary file + rename without event-loop blocking
+const atomicWriteJson = (filePath: string, data: any): boolean => {
+  try {
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true });
+    }
+
+    // Fast compact JSON serialization (avoids massive indentation overhead)
+    const jsonStr = JSON.stringify(data);
+    const tempFile = path.join(DB_DIR, `.tmp_${Date.now()}_${process.pid}_${Math.random().toString(36).slice(2)}.json`);
+
+    // 1. Fast write to temp file
+    fs.writeFileSync(tempFile, jsonStr, 'utf8');
+
+    // 2. Atomic rename to target file
+    fs.renameSync(tempFile, filePath);
+
+    // 3. Asynchronously maintain backup copy and snapshot without stalling request cycle
+    setImmediate(() => {
+      try {
+        if (!fs.existsSync(BACKUP_DIR)) {
+          fs.mkdirSync(BACKUP_DIR, { recursive: true });
+        }
+        fs.copyFileSync(filePath, DB_BAK_FILE);
+
+        const now = Date.now();
+        if (now - lastBackupSnapshotTime > 300000) { // 5 minutes
+          lastBackupSnapshotTime = now;
+          const timeStampStr = new Date().toISOString().replace(/[:.]/g, '-');
+          const snapFile = path.join(BACKUP_DIR, `snapshot_${timeStampStr}.json`);
+          fs.writeFileSync(snapFile, jsonStr, 'utf8');
+
+          // Async cleanup of old snapshots (keep latest 20)
+          setTimeout(() => {
+            try {
+              const files = fs.readdirSync(BACKUP_DIR)
+                .filter(f => f.startsWith('snapshot_') && f.endsWith('.json'))
+                .map(f => ({ name: f, path: path.join(BACKUP_DIR, f), time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+                .sort((a, b) => b.time - a.time);
+
+              if (files.length > 20) {
+                files.slice(20).forEach(f => {
+                  try { fs.unlinkSync(f.path); } catch {}
+                });
+              }
+            } catch {}
+          }, 1000);
+        }
+      } catch (bkErr) {
+        // Non-critical background task
+      }
+    });
+
+    return true;
+  } catch (err) {
+    console.error('CRITICAL: atomicWriteJson failed for:', filePath, err);
+    return false;
+  }
+};
+
+// Helper to validate whether a parsed JSON object has minimum database integrity
+const isDbSchemaValid = (obj: any): boolean => {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    Array.isArray(obj.branches) && obj.branches.length > 0 &&
+    Array.isArray(obj.users) && obj.users.length > 0 &&
+    Array.isArray(obj.medicines)
+  );
+};
+
+// Helper to try recovering from backup files
+const tryRecoverFromBackups = (): DbSchema | null => {
+  console.warn('[DB RECOVERY] Attempting to recover database from backups...');
+
+  // 1. Try DB_BAK_FILE
+  if (fs.existsSync(DB_BAK_FILE)) {
+    try {
+      const bakRaw = fs.readFileSync(DB_BAK_FILE, 'utf8');
+      const parsedBak = JSON.parse(bakRaw);
+      if (isDbSchemaValid(parsedBak)) {
+        console.log('[DB RECOVERY] Successfully recovered database from db.json.bak!');
+        atomicWriteJson(DB_FILE, parsedBak);
+        return parsedBak;
+      }
+    } catch (e) {
+      console.warn('[DB RECOVERY] db.json.bak was unparseable:', e);
+    }
+  }
+
+  // 2. Try snapshots in BACKUP_DIR
+  if (fs.existsSync(BACKUP_DIR)) {
+    try {
+      const snapFiles = fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.endsWith('.json'))
+        .map(f => ({ name: f, path: path.join(BACKUP_DIR, f), time: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+        .sort((a, b) => b.time - a.time);
+
+      for (const snap of snapFiles) {
+        try {
+          const raw = fs.readFileSync(snap.path, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (isDbSchemaValid(parsed)) {
+            console.log(`[DB RECOVERY] Successfully recovered database from snapshot: ${snap.name}!`);
+            atomicWriteJson(DB_FILE, parsed);
+            return parsed;
+          }
+        } catch {}
+      }
+    } catch (dirErr) {
+      console.warn('[DB RECOVERY] Could not read backup directory:', dirErr);
+    }
+  }
+
+  // 3. Try in-memory cachedDb if available and valid
+  if (cachedDb && isDbSchemaValid(cachedDb)) {
+    console.log('[DB RECOVERY] Restoring database from in-memory cache!');
+    atomicWriteJson(DB_FILE, cachedDb);
+    return cachedDb;
+  }
+
+  return null;
 };
 
 export const loadDb = (forceReload = false): DbSchema => {
@@ -1253,6 +752,14 @@ export const loadDb = (forceReload = false): DbSchema => {
     }
 
     if (!fs.existsSync(DB_FILE)) {
+      // First check if a backup exists before creating brand-new initial seed
+      const recovered = tryRecoverFromBackups();
+      if (recovered) {
+        cachedDb = recovered;
+        try { lastDbFileMtime = fs.statSync(DB_FILE).mtimeMs; } catch {}
+        return cachedDb;
+      }
+
       const initialDb: DbSchema = {
         branches: INITIAL_BRANCHES,
         users: INITIAL_USERS,
@@ -1267,32 +774,12 @@ export const loadDb = (forceReload = false): DbSchema => {
         auditLogs: INITIAL_AUDIT_LOGS,
         backupRecords: INITIAL_BACKUP_RECORDS,
         categories: INITIAL_CATEGORIES,
-        externalPharmacies: [
-          { id: 'ep1', name: 'Zewditu Hospital Pharmacy', phone: '+251-11-5511223', address: 'Zewditu Street, Addis Ababa', tinNumber: '9928374615' },
-          { id: 'ep2', name: 'St. Paulos General Hospital Pharmacy', phone: '+251-11-2750125', address: 'Swaziland Street, Addis Ababa', tinNumber: '7738491029' }
-        ],
-        pharmacyNotes: [
-          {
-            id: 'note_1',
-            text: 'Reminder: The cold chain refrigerator temperature needs to be logged at the start and end of every shift. Keep it between 2°C and 8°C.',
-            authorName: 'Admin',
-            role: 'Super Administrator',
-            date: '2026-06-30',
-            time: '08:00'
-          },
-          {
-            id: 'note_2',
-            text: 'Azithromycin is running low in Branch 1. I requested a stock transfer from Branch 2, please approve it when you start your manager shift.',
-            authorName: 'Selam Tesfaye',
-            role: 'Branch Manager',
-            date: '2026-06-30',
-            time: '16:30'
-          }
-        ]
+        externalPharmacies: [],
+        pharmacyNotes: []
       };
       const unifiedInitDb = unifyDuplicateMedicines(initialDb);
       unifiedInitDb.medicines = alignMedicinePrices(unifiedInitDb.medicines);
-      fs.writeFileSync(DB_FILE, JSON.stringify(unifiedInitDb, null, 2), 'utf8');
+      atomicWriteJson(DB_FILE, unifiedInitDb);
       cachedDb = unifiedInitDb;
       try {
         lastDbFileMtime = fs.statSync(DB_FILE).mtimeMs;
@@ -1300,7 +787,7 @@ export const loadDb = (forceReload = false): DbSchema => {
       return cachedDb;
     }
     
-    // Instant In-Memory Cache hit (prevents blocking sync disk I/O on rapid API calls)
+    // Fast In-Memory Cache hit
     if (!forceReload && cachedDb && lastDbFileMtime !== 0) {
       try {
         const currentMtime = fs.statSync(DB_FILE).mtimeMs;
@@ -1312,34 +799,43 @@ export const loadDb = (forceReload = false): DbSchema => {
       }
     }
 
-    const rawData = fs.readFileSync(DB_FILE, 'utf8');
-    let parsed = JSON.parse(rawData);
-    parsed = unifyDuplicateMedicines(parsed);
-    if (!parsed.supplierTransactions) {
+    let rawData = '';
+    try {
+      rawData = fs.readFileSync(DB_FILE, 'utf8');
+    } catch (readErr) {
+      console.error('[loadDb] File read error:', readErr);
+      const recovered = tryRecoverFromBackups();
+      if (recovered) return recovered;
+      if (cachedDb) return cachedDb;
+      throw readErr;
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(rawData);
+    } catch (parseErr) {
+      console.error('[loadDb] JSON Parse failure on db.json:', parseErr);
+      const recovered = tryRecoverFromBackups();
+      if (recovered) return recovered;
+      if (cachedDb) return cachedDb;
+      throw parseErr;
+    }
+
+    if (!isDbSchemaValid(parsed)) {
+      console.warn('[loadDb] db.json structure was invalid or empty, attempting recovery...');
+      const recovered = tryRecoverFromBackups();
+      if (recovered) return recovered;
+    }
+
+    // Initialize missing arrays without erasing user empty arrays
+    if (!parsed.supplierTransactions || !Array.isArray(parsed.supplierTransactions)) {
       parsed.supplierTransactions = [];
     }
-    if (!parsed.stockMovements) {
+    if (!parsed.stockMovements || !Array.isArray(parsed.stockMovements)) {
       parsed.stockMovements = [];
     }
-    if (!parsed.pharmacyNotes) {
-      parsed.pharmacyNotes = [
-        {
-          id: 'note_1',
-          text: 'Reminder: The cold chain refrigerator temperature needs to be logged at the start and end of every shift. Keep it between 2°C and 8°C.',
-          authorName: 'Admin',
-          role: 'Super Administrator',
-          date: '2026-06-30',
-          time: '08:00'
-        },
-        {
-          id: 'note_2',
-          text: 'Azithromycin is running low in Branch 1. I requested a stock transfer from Branch 2, please approve it when you start your manager shift.',
-          authorName: 'Selam Tesfaye',
-          role: 'Branch Manager',
-          date: '2026-06-30',
-          time: '16:30'
-        }
-      ];
+    if (!parsed.pharmacyNotes || !Array.isArray(parsed.pharmacyNotes)) {
+      parsed.pharmacyNotes = [];
     }
     if (!parsed.institution) {
       parsed.institution = {
@@ -1351,56 +847,17 @@ export const loadDb = (forceReload = false): DbSchema => {
         logoUrl: ''
       };
     }
-    if (!parsed.externalPharmacies) {
-      parsed.externalPharmacies = [
-        { id: 'ep1', name: 'Zewditu Hospital Pharmacy', phone: '+251-11-5511223', address: 'Zewditu Street, Addis Ababa', tinNumber: '9928374615' },
-        { id: 'ep2', name: 'St. Paulos General Hospital Pharmacy', phone: '+251-11-2750125', address: 'Swaziland Street, Addis Ababa', tinNumber: '7738491029' }
-      ];
+    if (!parsed.externalPharmacies || !Array.isArray(parsed.externalPharmacies)) {
+      parsed.externalPharmacies = [];
     }
-    if (!parsed.teleconsultations) {
+    if (!parsed.teleconsultations || !Array.isArray(parsed.teleconsultations)) {
       parsed.teleconsultations = [];
     }
     if (!parsed.visitors || !Array.isArray(parsed.visitors)) {
       parsed.visitors = [];
     }
-    if (!parsed.visitors || !Array.isArray(parsed.visitors)) {
-      parsed.visitors = [];
-    }
-    if (!parsed.categories || !Array.isArray(parsed.categories) || parsed.categories.length === 0) {
+    if (!parsed.categories || !Array.isArray(parsed.categories)) {
       parsed.categories = INITIAL_CATEGORIES;
-    } else {
-      // Ensure existing default categories have all standard subcategories available
-      INITIAL_CATEGORIES.forEach(initialCat => {
-        const existingCat = parsed.categories.find(
-          (c: any) => c.name.toLowerCase() === initialCat.name.toLowerCase()
-        );
-        if (existingCat) {
-          if (existingCat.name.toLowerCase() === 'antibiotics') {
-            existingCat.subCategories = initialCat.subCategories || [];
-          } else if (!existingCat.subCategories || !Array.isArray(existingCat.subCategories)) {
-            existingCat.subCategories = initialCat.subCategories || [];
-          } else {
-            // Append missing subcategories from standard initial subcategories
-            (initialCat.subCategories || []).forEach(standardSub => {
-              const hasSub = existingCat.subCategories.some(
-                (s: any) => (s.name || '').toLowerCase() === standardSub.name.toLowerCase()
-              );
-              if (!hasSub) {
-                existingCat.subCategories.push(standardSub);
-              }
-            });
-          }
-        } else {
-          parsed.categories.push(initialCat);
-        }
-      });
-    }
-    if (parsed.itemMasterTemplates && Array.isArray(parsed.itemMasterTemplates)) {
-      parsed.itemMasterTemplates.forEach((t: any) => {
-        if ((t.category || '').trim().toLowerCase() === 'antibiotics') {
-          t.subCategory = '';
-        }
-      });
     }
     if (!parsed.customUnits || !Array.isArray(parsed.customUnits) || parsed.customUnits.length === 0) {
       parsed.customUnits = [
@@ -1423,117 +880,12 @@ export const loadDb = (forceReload = false): DbSchema => {
         isPrescriptionRequired: false,
         rememberDefaults: true
       };
-    } else if (parsed.itemAddPresets.category?.toLowerCase() === 'antibiotics') {
-      parsed.itemAddPresets.subCategory = '';
     }
     if (!parsed.itemMasterTemplates || !Array.isArray(parsed.itemMasterTemplates)) {
       parsed.itemMasterTemplates = [];
     }
-    // Auto-populate itemMasterTemplates from medicines if empty
-    if (parsed.itemMasterTemplates.length === 0 && parsed.medicines && parsed.medicines.length > 0) {
-      const stockMap: Record<string, any> = {};
-      (parsed.stockItems || []).forEach((st: any) => {
-        if (st.medicineId) {
-          stockMap[st.medicineId] = st;
-        }
-      });
-      parsed.itemMasterTemplates = parsed.medicines.map((m: any) => {
-        const lastSt = stockMap[m.id];
-        return {
-          id: `tmpl_${m.id}`,
-          name: m.name,
-          genericName: m.genericName || m.name,
-          category: m.category || 'General',
-          subCategory: m.subCategory || '',
-          unit: m.unit || 'Piece (PCS)',
-          buyingPrice: lastSt ? Number(lastSt.buyingPrice) : (Number(m.buyingPrice) || 0),
-          price: Number(m.price) || 0,
-          profitMargin: m.profitMargin !== undefined ? Number(m.profitMargin) : 30,
-          useMarginPricing: m.useMarginPricing !== undefined ? !!m.useMarginPricing : true,
-          isPrescriptionRequired: !!m.isPrescriptionRequired,
-          productType: m.productType || 'medicine',
-          minStockLevel: Number(m.minStockLevel) || 10,
-          description: m.description || '',
-          supplierId: lastSt?.supplierId || (m as any).supplierId || 's1',
-          purchaseInvoiceNumber: (lastSt as any)?.purchaseInvoiceNumber || (m as any).purchaseInvoiceNumber || '',
-          expiryDate: lastSt?.expiryDate || '',
-          batchNumber: lastSt?.batchNumber || '',
-          barcode: m.barcode || '',
-          sku: m.sku || '',
-          imageUrl: m.imageUrl || '',
-          lastUpdated: new Date().toISOString()
-        };
-      });
-    }
-    parsed.medicines = alignMedicinePrices(parsed.medicines || []);
 
-    // Clean up & normalize supplier names in stock movements
-    if (parsed.stockMovements && Array.isArray(parsed.stockMovements)) {
-      const suppliersList = parsed.suppliers && parsed.suppliers.length > 0 ? parsed.suppliers : INITIAL_SUPPLIERS;
-      parsed.stockMovements.forEach((sm: any) => {
-        if (sm.quantityIn > 0 && !sm.sourceBranchName && !sm.targetBranchName) {
-          const curSupName = sm.supplierName || '';
-          const isPlaceholder = !curSupName || 
-            curSupName === 'supplier1' || 
-            curSupName === 'suplier1' || 
-            curSupName === 's1' || 
-            curSupName === 'supplier-1' || 
-            curSupName.toLowerCase() === 'registered supplier';
-          
-          if (isPlaceholder || sm.supplierId) {
-            const matched = suppliersList.find((s: any) => 
-              s.id === sm.supplierId || 
-              s.id === curSupName || 
-              s.name.toLowerCase() === curSupName.toLowerCase()
-            );
-            if (matched) {
-              sm.supplierName = matched.name;
-              sm.supplierId = matched.id;
-            } else if (isPlaceholder) {
-              const defaultSup = suppliersList.find((s: any) => s.id === 's1') || suppliersList[0];
-              if (defaultSup) {
-                sm.supplierName = defaultSup.name;
-                sm.supplierId = defaultSup.id;
-              }
-            }
-          }
-        }
-      });
-    }
-
-    // Auto-migrate: assign branch-specific sequential serialNumber starting from 1
-    if (parsed.sales && Array.isArray(parsed.sales)) {
-      const salesByBranch: { [branchId: string]: any[] } = {};
-      parsed.sales.forEach((s: any) => {
-        const bId = s.branchId || 'default';
-        if (!salesByBranch[bId]) {
-          salesByBranch[bId] = [];
-        }
-        salesByBranch[bId].push(s);
-      });
-
-      Object.keys(salesByBranch).forEach(bId => {
-        const sorted = salesByBranch[bId].sort((a, b) => {
-          const dateA = a.date || '';
-          const dateB = b.date || '';
-          if (dateA !== dateB) return dateA.localeCompare(dateB);
-          const timeA = a.time || '';
-          const timeB = b.time || '';
-          if (timeA !== timeB) return timeA.localeCompare(timeB);
-          const idA = a.id || '';
-          const idB = b.id || '';
-          return idA.localeCompare(idB);
-        });
-
-        sorted.forEach((sale, index) => {
-          if (!sale.serialNumber) {
-            sale.serialNumber = index + 1;
-          }
-        });
-      });
-    }
-
-    if (!parsed.payrollProfiles || !Array.isArray(parsed.payrollProfiles) || parsed.payrollProfiles.length === 0) {
+    if (!parsed.payrollProfiles || !Array.isArray(parsed.payrollProfiles)) {
       parsed.payrollProfiles = INITIAL_PAYROLL_PROFILES;
     }
     if (!parsed.payrollRuns || !Array.isArray(parsed.payrollRuns)) {
@@ -1556,8 +908,11 @@ export const loadDb = (forceReload = false): DbSchema => {
     return cachedDb;
   } catch (error) {
     console.error('Error loading database:', error);
+    const recovered = tryRecoverFromBackups();
+    if (recovered) return recovered;
     if (cachedDb) return cachedDb;
-    // Return initial fallback if file read fails to prevent crash
+    
+    // Return initial fallback as absolute last resort
     return {
       branches: INITIAL_BRANCHES,
       users: INITIAL_USERS,
@@ -1576,21 +931,31 @@ export const loadDb = (forceReload = false): DbSchema => {
   }
 };
 
-export const saveDb = (dbData: DbSchema): boolean => {
+export const saveDb = (dbData: DbSchema, allowWipe = false): boolean => {
   try {
-    if (!fs.existsSync(DB_DIR)) {
-      fs.mkdirSync(DB_DIR, { recursive: true });
+    if (!dbData || typeof dbData !== 'object') {
+      console.error('[saveDb] Refusing to save invalid/null dbData payload');
+      return false;
     }
-    if (dbData && dbData.medicines) {
+    if (!allowWipe && Array.isArray(dbData.users) && dbData.users.length === 0 && cachedDb && cachedDb.users && cachedDb.users.length > 0) {
+      dbData.users = cachedDb.users;
+    }
+    if (!allowWipe && Array.isArray(dbData.branches) && dbData.branches.length === 0 && cachedDb && cachedDb.branches && cachedDb.branches.length > 0) {
+      dbData.branches = cachedDb.branches;
+    }
+    if (dbData.medicines && Array.isArray(dbData.medicines)) {
       dbData.medicines = alignMedicinePrices(dbData.medicines);
     }
     dbData.lastUpdated = Date.now();
     cachedDb = dbData;
-    fs.writeFileSync(DB_FILE, JSON.stringify(dbData), 'utf8');
-    try {
-      lastDbFileMtime = fs.statSync(DB_FILE).mtimeMs;
-    } catch {}
-    return true;
+
+    const success = atomicWriteJson(DB_FILE, dbData);
+    if (success) {
+      try {
+        lastDbFileMtime = fs.statSync(DB_FILE).mtimeMs;
+      } catch {}
+    }
+    return success;
   } catch (error) {
     console.error('Error saving database:', error);
     return false;

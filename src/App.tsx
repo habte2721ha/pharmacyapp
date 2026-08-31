@@ -8,7 +8,8 @@ import {
   ChevronLeft, ChevronRight, Eye, EyeOff, Key, ShoppingBag,
   Share2, Copy, Check, ExternalLink, MessageSquare, Send, Mail, QrCode, Globe, Printer, Sparkles, Stethoscope,
   FolderTree, Video, PhoneCall, PhoneIncoming, Bell, PhoneOff, Volume2, VolumeX, PhoneForwarded,
-  SlidersHorizontal, ChevronDown, Type, Settings2, MoreVertical, Banknote, Clock, CalendarCheck
+  SlidersHorizontal, ChevronDown, Type, Settings2, MoreVertical, Banknote, Clock, CalendarCheck,
+  Wifi, WifiOff
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -272,7 +273,14 @@ export default function App() {
     const roleStr = String(user.role);
     const perms: string[] = user.permissions || [];
 
-    if (roleStr === 'Super Administrator' || roleStr === 'Admin' || roleStr === 'Administrator' || roleStr === 'Auditor') return true;
+    const isAdmin = roleStr === 'Super Administrator' || 
+                    roleStr === 'Admin' || 
+                    roleStr === 'Administrator' || 
+                    roleStr === 'Auditor' ||
+                    user.username?.toLowerCase() === 'admin' ||
+                    user.username?.toLowerCase() === 'superadmin';
+
+    if (isAdmin) return true;
 
     switch (tabId) {
       case 'dashboard':
@@ -282,7 +290,7 @@ export default function App() {
       case 'inventory':
         return roleStr === 'Pharmacist' || roleStr === 'Store Keeper' || roleStr === 'Branch Manager' || perms.includes('inventory') || perms.includes('iteam add');
       case 'categories':
-        return roleStr === 'Super Administrator' || roleStr === 'Admin' || roleStr === 'Administrator' || roleStr === 'Auditor' || roleStr === 'Pharmacist' || roleStr === 'Store Keeper' || roleStr === 'Branch Manager' || perms.includes('categories') || perms.includes('admin') || perms.includes('inventory');
+        return roleStr === 'Pharmacist' || roleStr === 'Store Keeper' || roleStr === 'Branch Manager' || perms.includes('categories') || perms.includes('inventory');
       case 'bincards':
         return roleStr === 'Pharmacist' || roleStr === 'Store Keeper' || roleStr === 'Branch Manager' || perms.includes('bincards') || perms.includes('bin card');
       case 'transfers':
@@ -290,17 +298,20 @@ export default function App() {
       case 'purchases':
         return roleStr === 'Store Keeper' || roleStr === 'Branch Manager' || roleStr === 'Accountant' || perms.includes('purchases') || perms.includes('purchase');
       case 'credit-ledger':
-        return roleStr === 'Branch Manager' || roleStr === 'Pharmacist' || roleStr === 'Accountant' || perms.includes('credit-ledger') || perms.includes('credit');
+        // Restricted ONLY to Administrator
+        return false;
       case 'expenses':
-        return roleStr === 'Branch Manager' || roleStr === 'Pharmacist' || roleStr === 'Accountant' || perms.includes('expenses') || perms.includes('expense');
+        // Restricted ONLY to Administrator
+        return false;
       case 'customers':
         return roleStr === 'Cashier' || roleStr === 'Pharmacist' || roleStr === 'Branch Manager' || roleStr === 'Accountant' || perms.includes('customers') || perms.includes('customer');
       case 'finances':
         return roleStr === 'Accountant' || roleStr === 'Branch Manager' || perms.includes('report generation') || perms.includes('finances') || perms.includes('report');
       case 'payroll':
-        return roleStr === 'Super Administrator' || roleStr === 'Admin' || roleStr === 'Administrator' || roleStr === 'Accountant' || roleStr === 'Branch Manager' || perms.includes('payroll') || perms.includes('finances');
+        return false;
       case 'attendance':
-        return true; // Accessible to all staff members to punch in/out and view records
+        // Restricted ONLY to Administrator
+        return false;
       case 'sales-history':
         return true; // Accessible to all roles with system access
       case 'teleconsultation':
@@ -310,11 +321,11 @@ export default function App() {
       case 'voice-assistance':
         return true;
       case 'admin':
-        return roleStr === 'Super Administrator' || roleStr === 'Admin' || perms.includes('security_alerts') || perms.includes('security') || perms.includes('admin') || perms.includes('audit');
+        return false;
       case 'backup':
-        return roleStr === 'Super Administrator' || roleStr === 'Admin' || perms.includes('backup');
+        return false;
       case 'docs':
-        return roleStr === 'Super Administrator' || roleStr === 'Admin';
+        return false;
       default:
         return true;
     }
@@ -723,7 +734,7 @@ export default function App() {
   };
 
   // Helper for silent background updates without triggering full-page busy/spinner state
-  const handleSilentSync = () => refreshAllCollections(2, 1000, true);
+  const handleSilentSync = () => refreshAllCollections(2, 50, true);
 
   // Synchronously hydrate all collections into React state with strict cross-branch validation
   const applyAllData = (rawPayload: any) => {
@@ -759,155 +770,209 @@ export default function App() {
       }
     }
     if (Array.isArray(data.medicines)) {
-      if (data.medicines.length > 0 || medicines.length === 0) {
-        setMedicines(data.medicines);
-      }
+      setMedicines(data.medicines);
     }
     if (Array.isArray(data.stockItems)) {
-      if (data.stockItems.length > 0 || stockItems.length === 0) {
-        setStockItems(data.stockItems);
-      }
+      setStockItems(data.stockItems);
     }
     if (Array.isArray(data.suppliers)) {
-      if (data.suppliers.length > 0 || suppliers.length === 0) {
-        setSuppliers(data.suppliers);
-      }
+      setSuppliers(data.suppliers);
     }
     if (Array.isArray(data.purchaseOrders)) {
-      if (data.purchaseOrders.length > 0 || purchaseOrders.length === 0) {
-        setPurchaseOrders(data.purchaseOrders);
-      }
+      setPurchaseOrders(data.purchaseOrders);
     }
     if (Array.isArray(data.transfers)) {
-      if (data.transfers.length > 0 || transfers.length === 0) {
-        setTransfers(data.transfers);
-      }
+      setTransfers(data.transfers);
     }
     if (Array.isArray(data.customers)) {
-      if (data.customers.length > 0 || customers.length === 0) {
-        setCustomers(data.customers);
-      }
+      setCustomers(data.customers);
     }
     if (Array.isArray(data.expenses)) {
-      if (data.expenses.length > 0 || expenses.length === 0) {
-        setExpenses(data.expenses);
-      }
+      setExpenses(data.expenses);
     }
     if (Array.isArray(data.sales)) {
-      if (data.sales.length > 0 || sales.length === 0) {
-        setSales(data.sales);
-      }
+      setSales(data.sales);
     }
-    if (Array.isArray(data.categories) && data.categories.length > 0) {
+    if (Array.isArray(data.categories)) {
       setCategories(data.categories);
     }
     if (Array.isArray(data.auditLogs)) {
-      if (data.auditLogs.length > 0 || auditLogs.length === 0) {
-        setAuditLogs(data.auditLogs);
-      }
+      setAuditLogs(data.auditLogs);
     }
     if (Array.isArray(data.pharmacyNotes)) {
       setPharmacyNotes(data.pharmacyNotes);
+    }
+    if (rawPayload && (rawPayload.lastUpdated || rawPayload.serverTime)) {
+      lastKnownDbVersionRef.current = Number(rawPayload.lastUpdated || rawPayload.serverTime || Date.now());
     }
     setIsBackendConnected(true);
     setLoadingDb(false);
   };
 
-  const isFetchingAllDataRef = React.useRef<boolean>(false);
+  // Concurrency Lock & Single-Flight Coalescing References for data synchronization
+  const isSyncLockedRef = React.useRef<boolean>(false);
+  const inFlightSyncPromiseRef = React.useRef<Promise<boolean> | null>(null);
+  const queuedSyncRequestRef = React.useRef<{ retries: number; silent: boolean } | null>(null);
   const lastAllDataFetchTimeRef = React.useRef<number>(0);
+  const lastKnownDbVersionRef = React.useRef<number>(0);
 
-  // 1. Core State Sync Engine (With Concurrency Control & Robust Retry Backoff)
-  const refreshAllCollections = async (retriesArg?: any, delay = 1000, silentArg?: any) => {
+  // 1. Core State Sync Engine (With Concurrency Mutex Lock, Promise Coalescing & Trailing Execution)
+  const refreshAllCollections = (retriesArg?: any, delay = 1000, silentArg?: any): Promise<boolean> => {
     // If called directly from an event handler (e.g. onClick={refreshAllCollections}), retriesArg is a SyntheticEvent
     const isManualClick = Boolean(retriesArg && typeof retriesArg === 'object' && 'nativeEvent' in retriesArg);
     const silent = isManualClick ? false : (typeof silentArg === 'boolean' ? silentArg : (typeof retriesArg === 'boolean' ? retriesArg : true));
     const retries = typeof retriesArg === 'number' ? retriesArg : (isManualClick ? 2 : 3);
 
-    // Prevent overlapping parallel fetches of the bulk payload
-    if (isFetchingAllDataRef.current) return;
-    isFetchingAllDataRef.current = true;
+    // If an in-flight sync is ALREADY active, coalesce without spawning parallel network requests
+    if (isSyncLockedRef.current && inFlightSyncPromiseRef.current) {
+      const currentQueued = queuedSyncRequestRef.current;
+      queuedSyncRequestRef.current = {
+        retries: Math.max(currentQueued?.retries || 0, retries),
+        silent: (currentQueued?.silent === false || silent === false) ? false : true
+      };
 
-    try {
       if (!silent) {
         setLoadingDb(true);
       }
-      const user = currentUserRef.current;
-      const headers: Record<string, string> = {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
-      };
-      if (user) {
-        headers['X-User-Role'] = user.role;
-        headers['X-User-Id'] = user.id;
-      }
-      const res = await fetch('/api/all-data', { headers, cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        lastAllDataFetchTimeRef.current = Date.now();
 
-        // Asynchronously save complete fresh backup to localStorage in background idle time
-        setTimeout(() => {
-          try {
-            if (data && data.medicines && data.medicines.length > 0) {
-              safeLocalStorageSet('sonan_client_db_state', JSON.stringify(data));
-            }
-          } catch (e) {
-            console.error('Non-critical background storage sync warning:', e);
-          }
-        }, 50);
+      return inFlightSyncPromiseRef.current;
+    }
 
-        applyAllData(data);
-        if (!silent) {
-          setRefreshNotification({ show: true, message: 'Database records synchronized successfully', isError: false });
-          setTimeout(() => {
-            setRefreshNotification(prev => ({ ...prev, show: false }));
-          }, 3000);
+    // Acquire Concurrency Lock
+    isSyncLockedRef.current = true;
+    if (!silent) {
+      setLoadingDb(true);
+    }
+
+    const performFetchWithRetries = async (remainingRetries: number, currentDelay: number, isSilent: boolean): Promise<boolean> => {
+      let abortTimeout: any = null;
+      try {
+        const user = currentUserRef.current;
+        const headers: Record<string, string> = {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        };
+        if (user) {
+          headers['X-User-Role'] = user.role;
+          headers['X-User-Id'] = user.id;
         }
-      } else {
-        if (retries > 0) {
-          console.warn(`Fetch /api/all-data returned status ${res.status}. Retrying in ${delay}ms... (${retries} retries left)`);
+
+        const controller = new AbortController();
+        abortTimeout = setTimeout(() => controller.abort(), 15000);
+
+        const res = await fetch('/api/all-data', {
+          headers,
+          cache: 'no-store',
+          signal: controller.signal
+        });
+
+        if (abortTimeout) clearTimeout(abortTimeout);
+
+        const contentType = res.headers.get('content-type') || '';
+
+        if (res.ok && !contentType.includes('text/html')) {
+          let data: any = null;
+          try {
+            const rawText = await res.text();
+            if (rawText && (rawText.trim().startsWith('{') || rawText.trim().startsWith('['))) {
+              data = JSON.parse(rawText);
+            } else {
+              throw new Error(`Non-JSON response body (Content-Type: ${contentType || 'unknown'})`);
+            }
+          } catch (parseErr: any) {
+            console.warn('[Sync] Failed to parse JSON response from /api/all-data:', parseErr?.message || parseErr);
+            throw parseErr;
+          }
+
+          if (!data || typeof data !== 'object') {
+            throw new Error('Received empty or invalid database payload structure');
+          }
+
+          lastAllDataFetchTimeRef.current = Date.now();
+          setIsBackendConnected(true);
+
+          // Asynchronously save complete fresh backup to localStorage in background idle time
           setTimeout(() => {
-            isFetchingAllDataRef.current = false;
-            refreshAllCollections(retries - 1, delay * 1.5, silent);
-          }, delay);
-          return;
+            try {
+              if (data && data.medicines && data.medicines.length > 0) {
+                safeLocalStorageSet('sonan_client_db_state', JSON.stringify(data));
+              }
+            } catch (e) {
+              console.error('Non-critical background storage sync warning:', e);
+            }
+          }, 50);
+
+          applyAllData(data);
+          if (!isSilent) {
+            setRefreshNotification({ show: true, message: 'Database records synchronized successfully', isError: false });
+            setTimeout(() => {
+              setRefreshNotification(prev => ({ ...prev, show: false }));
+            }, 3000);
+          }
+          return true;
+        } else {
+          if (remainingRetries > 0) {
+            console.warn(`Fetch /api/all-data returned status ${res.status} (${contentType}). Retrying in ${currentDelay}ms... (${remainingRetries} retries left)`);
+            await new Promise(r => setTimeout(r, currentDelay));
+            return await performFetchWithRetries(remainingRetries - 1, currentDelay * 1.5, isSilent);
+          } else {
+            // Do not erase existing active in-memory data
+            loadLocalStateFallback(true);
+            setIsBackendConnected(false);
+            setLoadingDb(false);
+            if (!isSilent) {
+              setRefreshNotification({ show: true, message: 'Server unreachable. Loaded local cache.', isError: true });
+              setTimeout(() => {
+                setRefreshNotification(prev => ({ ...prev, show: false }));
+              }, 3500);
+            }
+            return false;
+          }
+        }
+      } catch (err: any) {
+        if (abortTimeout) clearTimeout(abortTimeout);
+        console.warn('Core DB sync notice:', err?.name === 'AbortError' ? 'Sync request timed out after 15s' : (err?.message || err));
+        if (remainingRetries > 0) {
+          console.warn(`Fetch /api/all-data failed. Retrying in ${currentDelay}ms... (${remainingRetries} retries left)`);
+          await new Promise(r => setTimeout(r, currentDelay));
+          return await performFetchWithRetries(remainingRetries - 1, currentDelay * 1.5, isSilent);
         } else {
           // Do not erase existing active in-memory data
           loadLocalStateFallback(true);
           setIsBackendConnected(false);
           setLoadingDb(false);
-          if (!silent) {
-            setRefreshNotification({ show: true, message: 'Server unreachable. Loaded local cache.', isError: true });
+          if (!isSilent) {
+            setRefreshNotification({ show: true, message: 'Network offline. Using cached data.', isError: true });
             setTimeout(() => {
               setRefreshNotification(prev => ({ ...prev, show: false }));
             }, 3500);
           }
+          return false;
         }
       }
-    } catch (err) {
-      console.error('Core DB sync failure:', err);
-      if (retries > 0) {
-        console.warn(`Fetch /api/all-data failed. Retrying in ${delay}ms... (${retries} retries left)`);
-        setTimeout(() => {
-          isFetchingAllDataRef.current = false;
-          refreshAllCollections(retries - 1, delay * 1.5, silent);
-        }, delay);
-        return;
-      } else {
-        // Do not erase existing active in-memory data
-        loadLocalStateFallback(true);
-        setIsBackendConnected(false);
-        setLoadingDb(false);
-        if (!silent) {
-          setRefreshNotification({ show: true, message: 'Network offline. Using cached data.', isError: true });
+    };
+
+    const syncPromise = (async () => {
+      try {
+        return await performFetchWithRetries(retries, delay, silent);
+      } finally {
+        // Release Concurrency Lock
+        isSyncLockedRef.current = false;
+        inFlightSyncPromiseRef.current = null;
+
+        // Execute single trailing sync if queued during in-flight operation
+        if (queuedSyncRequestRef.current) {
+          const queued = queuedSyncRequestRef.current;
+          queuedSyncRequestRef.current = null;
           setTimeout(() => {
-            setRefreshNotification(prev => ({ ...prev, show: false }));
-          }, 3500);
+            refreshAllCollections(queued.retries, 50, queued.silent);
+          }, 30);
         }
       }
-    } finally {
-      isFetchingAllDataRef.current = false;
-    }
+    })();
+
+    inFlightSyncPromiseRef.current = syncPromise;
+    return syncPromise;
   };
 
   const triggerManualSync = async () => {
@@ -935,36 +1000,69 @@ export default function App() {
     // Immediately fetch fresh authoritative live database state from server on app launch
     refreshAllCollections(3, 500, true);
 
-    // Revalidate on focus/visibility change with a 20-second throttle to prevent freezing
+    // Revalidate on focus/visibility change with a fast 1.5-second throttle for instant device switching
     const handleFocus = () => {
       const now = Date.now();
-      if (now - lastAllDataFetchTimeRef.current > 20000) {
-        refreshAllCollections(2, 500, true);
+      if (now - lastAllDataFetchTimeRef.current > 1500) {
+        refreshAllCollections(2, 50, true);
       }
     };
     window.addEventListener('focus', handleFocus);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
-        if (now - lastAllDataFetchTimeRef.current > 20000) {
-          refreshAllCollections(2, 500, true);
+        if (now - lastAllDataFetchTimeRef.current > 1500) {
+          refreshAllCollections(2, 50, true);
         }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
+
+    // Multi-Device Real-Time Synchronization Heartbeat:
+    // Periodically checks server database version (<100 bytes) and syncs changes seamlessly
+    let isCheckingVersion = false;
+    const heartbeatInterval = setInterval(async () => {
+      if (isCheckingVersion) return;
+      isCheckingVersion = true;
+      try {
+        const res = await fetch('/api/sync/version', {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
+        if (res.ok) {
+          setIsBackendConnected(true);
+          const info = await res.json();
+          const serverVersion = Number(info.lastUpdated || 0);
+          const localVersion = lastKnownDbVersionRef.current;
+          
+          // If server database version is newer than local version, trigger immediate background sync
+          if (serverVersion > 0 && serverVersion > localVersion) {
+            refreshAllCollections(2, 50, true);
+          }
+        }
+      } catch (e) {
+        // Blip or offline: non-blocking
+      } finally {
+        isCheckingVersion = false;
+      }
+    }, 3500);
+
     return () => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(heartbeatInterval);
     };
   }, []);
 
-  // Poll pharmacy notes/security alerts every 5 seconds when logged in to receive security OTPs in real-time
+  // Poll pharmacy notes/security alerts every 15 seconds when logged in and tab is active
   useEffect(() => {
     if (currentUser) {
       refreshPharmacyNotes();
       const interval = setInterval(() => {
-        refreshPharmacyNotes();
-      }, 5000);
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+          refreshPharmacyNotes();
+        }
+      }, 15000);
       return () => clearInterval(interval);
     }
   }, [currentUser]);
@@ -1033,7 +1131,7 @@ export default function App() {
     };
 
     checkIncomingTeleconsultations();
-    const teleInterval = setInterval(checkIncomingTeleconsultations, 4500);
+    const teleInterval = setInterval(checkIncomingTeleconsultations, 12000);
     return () => clearInterval(teleInterval);
   }, [currentUser]);
 
@@ -1088,7 +1186,14 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setIsBackendConnected(true);
-        if (data.requiresDeviceOtp) {
+        const isAdminUser = data.user?.role === 'Super Administrator' || 
+                            data.user?.role === 'Admin' || 
+                            data.user?.role === 'Administrator' || 
+                            data.user?.role === 'Auditor' ||
+                            data.user?.username?.toLowerCase() === 'admin' ||
+                            data.user?.username?.toLowerCase() === 'superadmin';
+
+        if (data.requiresDeviceOtp && !isAdminUser) {
           setDeviceOtpUser(data.user);
           setDeviceOtpId(data.deviceId);
           setOtpSentTo(data.otpSentTo || null);
@@ -1273,19 +1378,29 @@ export default function App() {
         }).catch(() => {});
       } catch {}
     }
+    currentUserRef.current = null;
+    lastAuthenticatedUserIdRef.current = null;
     setCurrentUser(null);
+    setActiveTab('dashboard');
+    setShowDeviceOtpModal(false);
+    setDeviceOtpUser(null);
+    setDeviceOtpCode('');
+    setDeviceOtpError('');
+    setAuthError('');
+    setAuthLoading(false);
+    setMobileMenuOpen(false);
+    setMobileHeaderDropdownOpen(false);
+    setShowAppShareModal(false);
+    setIncomingTeleAlertSession(null);
+    setIsPublicStoreMode(false);
+
     try {
       sessionStorage.removeItem('sonan_current_user');
       sessionStorage.removeItem('sonan_active_tab');
-      // Only clear localStorage user if it belongs to this tab's user
-      const stored = localStorage.getItem('sonan_current_user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed?.id === loggingOutId) {
-          localStorage.removeItem('sonan_current_user');
-        }
-      }
+      localStorage.removeItem('sonan_current_user');
+      localStorage.removeItem('sonan_active_tab');
     } catch {}
+
     initialBranchSetRef.current = false;
     setUsernameInput('admin');
     setPasswordInput('admin123');
@@ -1344,6 +1459,32 @@ export default function App() {
     };
   }, []);
 
+  const lowOrOutOfStockInventoryCount = React.useMemo(() => {
+    if (!medicines || medicines.length === 0) return 0;
+    const effectiveBranchId = (currentUser && currentUser.role !== 'Super Administrator' && currentUser.role !== 'Auditor' && currentUser.role !== 'Accountant' && currentUser.branchId && currentUser.branchId !== 'all')
+      ? currentUser.branchId
+      : activeBranchContext;
+
+    const stockMap: Record<string, number> = {};
+    stockItems.forEach(st => {
+      if (st.isDamaged) return;
+      if (effectiveBranchId === 'all' || st.branchId === effectiveBranchId) {
+        stockMap[st.medicineId] = (stockMap[st.medicineId] || 0) + (Number(st.quantity) || 0);
+      }
+    });
+
+    let count = 0;
+    medicines.forEach(m => {
+      const qty = stockMap[m.id] || 0;
+      const minLevel = Number(m.minStockLevel) || 10;
+      if (qty === 0 || qty <= minLevel) {
+        count++;
+      }
+    });
+
+    return count;
+  }, [medicines, stockItems, currentUser, activeBranchContext]);
+
   // 3. Render Public Store or Login screen when unauthenticated or requested
   if (isPublicStoreMode) {
     return <PublicCustomerStore onBackToApp={() => setIsPublicStoreMode(false)} />;
@@ -1364,7 +1505,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-150 dark:border-slate-800 max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 overflow-hidden transition-all duration-200">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-800 max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 overflow-hidden transition-all duration-200">
           
           {/* Left panel design banner */}
           <div className="bg-emerald-900 dark:bg-emerald-950 p-10 text-white flex flex-col justify-between relative overflow-hidden transition-colors duration-200">
@@ -1401,7 +1542,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="text-[10px] text-emerald-250 font-mono relative z-10">
+            <div className="text-[10px] text-emerald-300 dark:text-emerald-400 font-mono relative z-10">
               © 2026 Advanced Pharmacy Co. Ltd.
             </div>
           </div>
@@ -1410,7 +1551,7 @@ export default function App() {
           <div className="p-10 flex flex-col justify-center space-y-6">
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-1">
-                <h2 className="text-xl font-sans font-bold text-gray-950 dark:text-white tracking-tight">System Login</h2>
+                <h2 className="text-xl font-sans font-bold text-gray-900 dark:text-white tracking-tight">System Login</h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Welcome to Advanced Pharmaceutical Stock Management System, please login to continue.</p>
               </div>
               
@@ -1457,7 +1598,7 @@ export default function App() {
                     required
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-lg p-2.5 pl-10 outline-none text-gray-800 dark:text-slate-250 focus:border-emerald-500 dark:focus:border-emerald-400 transition-colors"
+                    className="w-full bg-white dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-lg p-2.5 pl-10 outline-none text-gray-800 dark:text-slate-200 focus:border-emerald-500 dark:focus:border-emerald-400 transition-colors"
                     placeholder="Enter username ID"
                   />
                 </div>
@@ -1472,7 +1613,7 @@ export default function App() {
                     required
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-lg p-2.5 pl-10 outline-none text-gray-800 dark:text-slate-250 focus:border-emerald-500 dark:focus:border-emerald-400 transition-colors"
+                    className="w-full bg-white dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-lg p-2.5 pl-10 outline-none text-gray-800 dark:text-slate-200 focus:border-emerald-500 dark:focus:border-emerald-400 transition-colors"
                     placeholder="Enter password"
                   />
                 </div>
@@ -1488,15 +1629,15 @@ export default function App() {
             </form>
 
             {/* Quick Demo Predefined Accounts Picker */}
-            <div className="border-t border-gray-150 dark:border-slate-800 pt-5 space-y-2">
-              <span className="text-[10px] font-mono uppercase font-bold text-gray-400 dark:text-gray-550 tracking-wider block">
+            <div className="border-t border-gray-200 dark:border-slate-800 pt-5 space-y-2">
+              <span className="text-[10px] font-mono uppercase font-bold text-gray-400 dark:text-gray-500 tracking-wider block">
                 Enterprise Test Accounts (Pre-Seeded)
               </span>
               <div className="grid grid-cols-1 gap-2 text-[10px] font-sans">
                 <button
                   type="button"
                   onClick={() => { setUsernameInput('admin'); setPasswordInput('admin123'); }}
-                  className="bg-gray-55 dark:bg-slate-950 hover:bg-gray-100 dark:hover:bg-slate-800 border border-gray-100 dark:border-slate-800 text-left p-2.5 rounded-lg transition-all duration-150 cursor-pointer text-gray-750 dark:text-slate-300"
+                  className="bg-gray-50 dark:bg-slate-950 hover:bg-gray-100 dark:hover:bg-slate-800 border border-gray-200 dark:border-slate-800 text-left p-2.5 rounded-lg transition-all duration-150 cursor-pointer text-gray-700 dark:text-slate-300"
                 >
                   <span className="font-bold text-emerald-600 dark:text-emerald-400 block text-xs">Default Super Administrator</span>
                   <span className="text-[10px] text-gray-500 block mt-0.5">Username: <b className="font-mono text-gray-800 dark:text-white">admin</b> | Password: <b className="font-mono text-gray-800 dark:text-white">admin123</b></span>
@@ -1700,32 +1841,6 @@ export default function App() {
 
     return false;
   });
-
-  const lowOrOutOfStockInventoryCount = React.useMemo(() => {
-    if (!medicines || medicines.length === 0) return 0;
-    const effectiveBranchId = (currentUser && currentUser.role !== 'Super Administrator' && currentUser.role !== 'Auditor' && currentUser.role !== 'Accountant' && currentUser.branchId && currentUser.branchId !== 'all')
-      ? currentUser.branchId
-      : activeBranchContext;
-
-    const stockMap: Record<string, number> = {};
-    stockItems.forEach(st => {
-      if (st.isDamaged) return;
-      if (effectiveBranchId === 'all' || st.branchId === effectiveBranchId) {
-        stockMap[st.medicineId] = (stockMap[st.medicineId] || 0) + (Number(st.quantity) || 0);
-      }
-    });
-
-    let count = 0;
-    medicines.forEach(m => {
-      const qty = stockMap[m.id] || 0;
-      const minLevel = Number(m.minStockLevel) || 10;
-      if (qty === 0 || qty <= minLevel) {
-        count++;
-      }
-    });
-
-    return count;
-  }, [medicines, stockItems, currentUser, activeBranchContext]);
 
   const activeBranchName = activeBranchContext === 'all' ? 'All Active Nodes' : branches.find(b => b.id === activeBranchContext)?.name || 'Local node';
   return (
@@ -2310,6 +2425,47 @@ export default function App() {
         </div>
 
       </header>
+
+      {/* Offline Mode & Sync Alert Banner */}
+      {isOffline && (
+        <div className="bg-amber-500/15 dark:bg-amber-950/40 border-b border-amber-300 dark:border-amber-900/60 px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-2 text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2">
+            <span className="p-1 rounded bg-amber-500 text-white shrink-0">
+              <WifiOff className="w-3.5 h-3.5" />
+            </span>
+            <span className="font-bold">Offline Mode Active:</span>
+            <span className="text-amber-800 dark:text-amber-300 hidden sm:inline">
+              No active internet connection. You can continue sales, inventory adjustments, and billing. All transactions are securely cached locally and will auto-sync when connection returns.
+            </span>
+            <span className="text-amber-800 dark:text-amber-300 sm:hidden">
+              Working offline. All transactions saved locally.
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {pendingSyncCount > 0 && (
+              <button
+                type="button"
+                onClick={triggerManualSync}
+                disabled={syncInProgress}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-bold rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${syncInProgress ? 'animate-spin' : ''}`} />
+                <span>{syncInProgress ? 'Syncing...' : `Sync Now (${pendingSyncCount})`}</span>
+              </button>
+            )}
+            {isSimulated && (
+              <button
+                type="button"
+                onClick={() => offlineManager.toggleSimulation()}
+                className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-amber-50 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 font-bold rounded-lg transition text-[11px] cursor-pointer"
+              >
+                Resume Online
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Grid: Sidebar vs Active Panel Workspace */}
       <div className="flex-1 flex flex-col md:flex-row">

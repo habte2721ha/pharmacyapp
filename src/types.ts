@@ -729,6 +729,58 @@ export interface AttendanceSettings {
   overtimeThresholdHours: number;
 }
 
+export interface AllDataPaginationInfo {
+  page: number;
+  limit: number;
+  totalMedicines: number;
+  totalPages: number;
+  hasMore: boolean;
+  totalStockItems: number;
+  totalSales: number;
+  totalAuditLogs: number;
+  counts: {
+    branches: number;
+    users: number;
+    medicines: number;
+    stockItems: number;
+    suppliers: number;
+    purchaseOrders: number;
+    transfers: number;
+    customers: number;
+    expenses: number;
+    sales: number;
+    auditLogs: number;
+    pharmacyNotes: number;
+  };
+}
+
+export interface AllDataResponse {
+  lastUpdated: number;
+  pagination?: AllDataPaginationInfo;
+  branches: Branch[];
+  users: User[];
+  medicines: Medicine[];
+  stockItems: StockItem[];
+  suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[];
+  transfers: StockTransfer[];
+  customers: Customer[];
+  expenses: Expense[];
+  sales: Sale[];
+  categories: ProductCategory[];
+  auditLogs: AuditLog[];
+  pharmacyNotes: PharmacyNote[];
+  institution?: any;
+  externalPharmacies?: ExternalPharmacy[];
+  stockMovements?: StockMovement[];
+  teleconsultations?: TeleconsultationSession[];
+  payrollProfiles?: PayrollProfile[];
+  payrollRuns?: PayrollRun[];
+  salaryAdvances?: SalaryAdvance[];
+  staffAttendance?: StaffAttendance[];
+  attendanceSettings?: AttendanceSettings | null;
+}
+
 export interface DbSchema {
   branches: Branch[];
   users: (User & { passwordHash: string })[];
