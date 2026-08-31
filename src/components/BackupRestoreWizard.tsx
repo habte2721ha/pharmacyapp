@@ -1038,10 +1038,24 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
       });
 
       const data = await res.json();
-      setExecutionResult(data);
+      const safeData = {
+        success: Boolean(data?.success),
+        summary: {
+          imported: Number(data?.summary?.imported) || 0,
+          skipped: Number(data?.summary?.skipped) || 0,
+          repaired: Number(data?.summary?.repaired) || 0,
+          total: Number(data?.summary?.total) || 0,
+          missingEntities: Array.isArray(data?.summary?.missingEntities) ? data.summary.missingEntities : []
+        },
+        logs: Array.isArray(data?.logs) ? data.logs : [data?.message || 'Database restoration completed.'],
+        skippedReasons: Array.isArray(data?.skippedReasons) ? data.skippedReasons : [],
+        warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+        itemsOnlyRestoreResult: data?.itemsOnlyRestoreResult
+      };
+      setExecutionResult(safeData);
       setWizardStep('result');
       
-      if (data.success) {
+      if (safeData.success) {
         onRestoreSuccess();
         fetchBackups();
       }
@@ -1490,7 +1504,7 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                     </h3>
                     <p className="text-xs text-gray-600 leading-normal">
                       {executionResult.success 
-                        ? `Successfully processed and committed ${executionResult.summary.imported} entities without anomalies. Duplicate checking bypassed ${executionResult.summary.skipped} records safely, and repaired ${executionResult.summary.repaired} referencing keys.`
+                        ? `Successfully processed and committed ${executionResult.summary?.imported ?? 0} entities without anomalies. Duplicate checking bypassed ${executionResult.summary?.skipped ?? 0} records safely, and repaired ${executionResult.summary?.repaired ?? 0} referencing keys.`
                         : 'The database import was halted due to relational constraint anomalies. Safe state restoration engaged; no data was overwritten.'
                       }
                     </p>
@@ -1502,31 +1516,31 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                   <div className="p-3 border border-gray-150 rounded-lg text-xs bg-gray-50/50">
                     <span className="text-gray-500 block">Saved Entries</span>
                     <span className="text-lg font-bold text-gray-900 block mt-1">
-                      {executionResult.summary.imported} rows
+                      {executionResult.summary?.imported ?? 0} rows
                     </span>
                   </div>
                   <div className="p-3 border border-gray-150 rounded-lg text-xs bg-gray-50/50">
                     <span className="text-gray-500 block">Repaired Keys</span>
                     <span className="text-lg font-bold text-emerald-700 block mt-1">
-                      {executionResult.summary.repaired} items
+                      {executionResult.summary?.repaired ?? 0} items
                     </span>
                   </div>
                   <div className="p-3 border border-gray-150 rounded-lg text-xs bg-gray-50/50">
                     <span className="text-gray-500 block">Skipped Conflicts</span>
                     <span className="text-lg font-bold text-yellow-700 block mt-1">
-                      {executionResult.summary.skipped} rows
+                      {executionResult.summary?.skipped ?? 0} rows
                     </span>
                   </div>
                   <div className="p-3 border border-gray-150 rounded-lg text-xs bg-gray-50/50">
                     <span className="text-gray-500 block">Missing Tables</span>
                     <span className="text-lg font-bold text-blue-700 block mt-1">
-                      {executionResult.summary.missingEntities?.length || 0} found
+                      {executionResult.summary?.missingEntities?.length || 0} found
                     </span>
                   </div>
                 </div>
 
                 {/* Missing entities automatically healed warnings */}
-                {executionResult.summary.missingEntities && executionResult.summary.missingEntities.length > 0 && (
+                {executionResult.summary?.missingEntities && executionResult.summary.missingEntities.length > 0 && (
                   <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-4 space-y-1">
                     <h4 className="text-xs font-semibold text-blue-800 flex items-center gap-1.5">
                       <Info className="h-4 w-4 shrink-0 text-blue-600" />

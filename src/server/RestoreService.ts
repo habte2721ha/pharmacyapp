@@ -1782,13 +1782,24 @@ export class RestoreService {
 
       if (isMapped(targetTable)) {
         mapped[targetTable].forEach(({ key, rows }) => {
+          if (!Array.isArray(rows)) return;
           rows.forEach((row, idx) => {
-            const result: any = restorer.restoreRow(row, idx, migratedDb, targetBranchId, context);
-            if (result.imported) {
-              importedCount++;
-            } else if (result.skipped) {
+            if (!row || typeof row !== 'object') return;
+            try {
+              const result: any = restorer.restoreRow(row, idx, migratedDb, targetBranchId, context);
+              if (result && result.imported) {
+                importedCount++;
+              } else if (result && result.skipped) {
+                skippedCount++;
+                skippedReasons.push(result.skipped);
+              } else {
+                skippedCount++;
+              }
+            } catch (rowErr: any) {
               skippedCount++;
-              skippedReasons.push(result.skipped);
+              const errorMsg = `Row ${idx} in table "${targetTable}" skipped: ${rowErr?.message || 'Parsing error'}`;
+              skippedReasons.push(errorMsg);
+              logs.push(`Warning: ${errorMsg}`);
             }
           });
         });
