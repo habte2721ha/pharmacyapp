@@ -1550,7 +1550,7 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                       The following tables/entities were missing from the backup format. Empty records were successfully seeded to prevent schema anomalies:
                     </p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {executionResult.summary.missingEntities.map((ent, eIdx) => (
+                      {executionResult.summary?.missingEntities?.map((ent, eIdx) => (
                         <span key={eIdx} className="bg-blue-100 border border-blue-250 text-blue-800 text-[10px] font-mono px-2 py-0.5 rounded font-medium">
                           {ent}
                         </span>
@@ -1567,7 +1567,7 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                       Automatic Relational Repairs &amp; Warnings
                     </h4>
                     <div className="space-y-1 max-h-40 overflow-y-auto">
-                      {executionResult.warnings.map((warn, wIdx) => (
+                      {(executionResult.warnings || []).map((warn, wIdx) => (
                         <div key={wIdx} className="text-xs text-yellow-700 flex items-start gap-1">
                           <span className="text-yellow-500 font-bold shrink-0">•</span>
                           <span>{warn}</span>
@@ -1586,10 +1586,10 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                     </span>
                   </div>
                   <div className="p-4 bg-gray-950 text-gray-200 font-mono text-xs space-y-2 max-h-56 overflow-y-auto leading-relaxed">
-                    {executionResult.logs.map((line, idx) => (
+                    {(executionResult.logs || []).map((line, idx) => (
                       <div key={idx} className="flex gap-2 items-start">
                         <span className="text-gray-600 shrink-0">[{idx+1}]</span>
-                        <span className={line.includes('CRITICAL') || line.includes('ERROR') ? 'text-red-400' : line.includes('Success') || line.includes('validated') || line.includes('repaired') ? 'text-emerald-400' : 'text-gray-300'}>
+                        <span className={line?.includes('CRITICAL') || line?.includes('ERROR') ? 'text-red-400' : line?.includes('Success') || line?.includes('validated') || line?.includes('repaired') ? 'text-emerald-400' : 'text-gray-300'}>
                           {line}
                         </span>
                       </div>
@@ -1598,14 +1598,14 @@ export default function BackupRestoreWizard({ currentUser, onRestoreSuccess }: B
                 </div>
 
                 {/* Skipped reasons table if any */}
-                {executionResult.skippedReasons.length > 0 && (
+                {(executionResult.skippedReasons?.length || 0) > 0 && (
                   <div className="border border-gray-150 rounded-lg p-4">
                     <h4 className="text-xs font-semibold text-gray-900 mb-2 flex items-center gap-1 text-yellow-700">
                       <AlertCircle className="h-4 w-4 shrink-0" />
                       Conflict Log Detail
                     </h4>
                     <div className="bg-gray-55 rounded divide-y divide-gray-200 border border-gray-200 max-h-40 overflow-y-auto font-sans text-xs text-gray-600">
-                      {executionResult.skippedReasons.map((reason, idx) => (
+                      {(executionResult.skippedReasons || []).map((reason, idx) => (
                         <div key={idx} className="p-2 flex gap-1 items-start">
                           <CornerDownRight className="h-3.5 w-3.5 text-gray-400 shrink-0 mt-0.5" />
                           <span>{reason}</span>
