@@ -31,7 +31,14 @@ export interface User {
   permissions?: string[]; // Custom role-based permission capabilities
   recognizedDevices?: string[]; // Authorized browser/device IDs
   deactivatedDevices?: string[]; // Deactivated browser/device IDs
-  pendingDeviceOtp?: { code: string; deviceId: string; expiry: string };
+  pendingDeviceOtp?: { 
+    code: string; 
+    deviceId: string; 
+    expiry: string;
+    attempts?: number;
+    maxAttempts?: number;
+    createdAt?: string;
+  };
   authorizedAccessIPs?: string[]; // Allowed IPs/networks if restricted
   hasLoggedInBefore?: boolean;
 }
@@ -257,6 +264,7 @@ export interface Expense {
   amount: number;
   description: string;
   recordedBy: string;
+  operator?: string;
 }
 
 export interface AuditLog {
@@ -300,6 +308,9 @@ export interface SupplierTransaction {
   paidAmount?: number;
   paymentStatus?: 'Pending' | 'Partially Paid' | 'Paid' | 'Overdue';
   paymentTerms?: string;
+  recipientName?: string; // Optional payment recipient / collector name
+  receiptAttachment?: string; // Optional base64 or URL payment receipt / voucher proof
+  receiptFileName?: string; // Optional filename for the attached receipt
 }
 
 export interface PharmacyNote {
@@ -483,6 +494,7 @@ export interface ItemAddPresetDefaults {
   unit?: string;
   category?: string;
   subCategory?: string;
+  batchNumber?: string;
   supplierId?: string;
   supplierName?: string;
   purchaseInvoiceNumber?: string;
@@ -499,6 +511,9 @@ export interface ItemAddPresetDefaults {
   rememberDefaults?: boolean;
   lastAddedItemName?: string;
   lastAddedAt?: string;
+  customCategory?: string;
+  customSubCategory?: string;
+  customUnit?: string;
 }
 
 export interface VisitorActivity {

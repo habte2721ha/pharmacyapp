@@ -113,20 +113,58 @@ function safeLocalStorageSet(key: string, value: string) {
   }
 }
 
-// Robust server connectivity check function using originalFetch
+// Robust server connectivity check function using originalFetch with consecutive failure tolerance
+let consecutiveConnectivityFailures = 0;
+
+function markNetworkOnline() {
+  consecutiveConnectivityFailures = 0;
+  if (!isNetworkOnline) {
+    isNetworkOnline = true;
+    notifyListeners();
+    triggerAutoSync();
+  }
+}
+
 async function verifyServerConnectivity(): Promise<boolean> {
   if (isSimulatedOffline) return false;
+
+  // If the browser/OS network interface is strictly offline, report false
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    consecutiveConnectivityFailures++;
+    return false;
+  }
+
   try {
     const fetchFn = (window as any).__originalFetch || window.fetch;
-    const res = await fetchFn('/api/sync/version', {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
+
+    const res = await fetchFn('/api/health', {
       method: 'GET',
       cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      signal: controller ? controller.signal : undefined
     });
-    return res.ok;
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (res.ok || res.status < 500) {
+      consecutiveConnectivityFailures = 0;
+      return true;
+    }
+
+    consecutiveConnectivityFailures++;
+    // If browser navigator.onLine is active, do not falsely declare offline
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      return true;
+    }
+    return consecutiveConnectivityFailures < 5;
   } catch {
-    // If backend ping fails, check navigator.onLine as secondary indicator
-    return typeof navigator !== 'undefined' ? navigator.onLine : false;
+    consecutiveConnectivityFailures++;
+    // If browser says we are online, do not drop to offline on transient glitch or latency
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      return true;
+    }
+    return false;
   }
 }
 
@@ -140,8 +178,11 @@ if (typeof window !== 'undefined') {
     }
 
     if (typeof forcedValue === 'boolean') {
-      isNetworkOnline = forcedValue;
-      notifyListeners();
+      if (forcedValue) consecutiveConnectivityFailures = 0;
+      if (isNetworkOnline !== forcedValue) {
+        isNetworkOnline = forcedValue;
+        notifyListeners();
+      }
       if (forcedValue) triggerAutoSync();
       return;
     }
@@ -159,23 +200,24 @@ if (typeof window !== 'undefined') {
   };
 
   window.addEventListener('online', () => {
+    consecutiveConnectivityFailures = 0;
     updateOnlineStatus(true);
   });
 
   window.addEventListener('offline', () => {
-    // Verify before declaring offline to prevent false positives in iframes
+    // Only mark offline if multiple verification checks confirm outage
     updateOnlineStatus();
   });
 
   // Initial check on load
-  setTimeout(() => updateOnlineStatus(), 200);
+  setTimeout(() => updateOnlineStatus(), 300);
 
-  // Periodic heartbeat / connectivity check every 8 seconds
+  // Periodic heartbeat / connectivity check every 20 seconds (gentle, resilient)
   setInterval(() => {
     if (!isSimulatedOffline) {
       updateOnlineStatus();
     }
-  }, 8000);
+  }, 20000);
 }
 
 // In-memory cache fallback in case both IndexedDB and localStorage are empty
@@ -183,7 +225,9 @@ let inMemoryDbState: any = null;
 
 export const offlineManager = {
   isOffline(): boolean {
-    return isSimulatedOffline || !isNetworkOnline;
+    if (isSimulatedOffline) return true;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
+    return !isNetworkOnline;
   },
 
   isSimulated(): boolean {
@@ -875,7 +919,7 @@ if (typeof window !== 'undefined' && !(window as any).__originalFetch) {
       try {
         const response = await originalFetch(input, init);
         if (response.ok) {
-          isNetworkOnline = true;
+          markNetworkOnline();
           // Clone and cache user
           try {
             const clone = response.clone();
@@ -975,8 +1019,11 @@ if (typeof window !== 'undefined' && !(window as any).__originalFetch) {
           throw new TypeError(`API endpoint ${url} returned HTML instead of JSON.`);
         }
 
+        if (response.ok || response.status < 500) {
+          markNetworkOnline();
+        }
+
         if (response.ok && contentType.includes('application/json')) {
-          isNetworkOnline = true;
           // Background snapshot cache on /api/all-data
           if (url.includes('/api/all-data')) {
             try {
@@ -1084,7 +1131,9 @@ if (typeof window !== 'undefined' && !(window as any).__originalFetch) {
       // Live write attempt
       try {
         const res = await originalFetch(input, init);
-        isNetworkOnline = true;
+        if (res.ok || res.status < 500) {
+          markNetworkOnline();
+        }
         return res;
       } catch (err) {
         // Network failure -> queue write persistently and optimistically update local store

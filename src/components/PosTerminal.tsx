@@ -154,6 +154,7 @@ export default function PosTerminal({
     expiryDate: string;
     batchNumber: string;
     overridePrice?: number;
+    overridePriceStr?: string;
   }[]>([]);
 
   // Load online order into cart when provided
@@ -223,9 +224,11 @@ export default function PosTerminal({
   const [showCustomBankModal, setShowCustomBankModal] = useState(false);
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [vatPercent, setVatPercent] = useState<number>(0);
+  const [vatPercentRaw, setVatPercentRaw] = useState<string>('0');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
   const [discountValue, setDiscountValue] = useState<number>(0);
+  const [discountValueRaw, setDiscountValueRaw] = useState<string>('');
   const [customerTin, setCustomerTin] = useState('');
 
   // Split details
@@ -239,6 +242,7 @@ export default function PosTerminal({
     dashen: 0,
     other: 0
   });
+  const [splitDetailsRaw, setSplitDetailsRaw] = useState<Record<string, string>>({});
 
   // Refund panel
   const [refundInvoiceNo, setRefundInvoiceNo] = useState('');
@@ -299,11 +303,15 @@ export default function PosTerminal({
       if (isChecking) return;
       isChecking = true;
       try {
-        const res = await fetch('/api/sync/version', {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
+        const res = await fetch('/api/health', {
           cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache' }
+          headers: { 'Cache-Control': 'no-cache' },
+          signal: controller ? controller.signal : undefined
         });
-        if (res.ok) {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (res.ok || res.status < 500) {
           setIsOnline(true);
         }
       } catch {
@@ -318,15 +326,16 @@ export default function PosTerminal({
 
     // Initial check
     checkServerConnection();
-    const interval = setInterval(checkServerConnection, 5000);
+    const interval = setInterval(checkServerConnection, 30000);
 
     const handleOnline = () => {
       setIsOnline(true);
       checkServerConnection();
     };
     const handleOffline = () => {
-      // Re-verify before declaring offline
-      checkServerConnection();
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setIsOnline(false);
+      }
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -503,8 +512,8 @@ export default function PosTerminal({
         };
       }
 
-      const effQty = Math.max(st.quantity || 0, (st.storeQuantity || 0) + (st.dispensaryQuantity || 0));
-      const normalizedSt = (st.quantity < effQty) ? { ...st, quantity: effQty } : st;
+      const effQty = typeof st.quantity === 'number' ? Math.max(0, st.quantity) : 0;
+      const normalizedSt = st;
 
       const targetBranch = branches?.find(b => b.id === branchId || b.name === branchId || b.code === branchId);
       const isBranchMatch = branchId === 'all' || !branchId || !st.branchId || st.branchId === branchId ||
@@ -680,7 +689,7 @@ export default function PosTerminal({
     }
 
     const targetBatch = usableBatches[0];
-    const targetBatchQty = Math.max(targetBatch.quantity || 0, (targetBatch.storeQuantity || 0) + (targetBatch.dispensaryQuantity || 0));
+    const targetBatchQty = typeof targetBatch.quantity === 'number' ? Math.max(0, targetBatch.quantity) : 0;
 
     const existingIdx = cart.findIndex(c => String(c.medicine.id) === String(med.id) && String(c.selectedBatchId) === String(targetBatch.id));
     if (existingIdx !== -1) {
@@ -715,7 +724,7 @@ export default function PosTerminal({
         return;
       }
 
-      const effQty = Math.max(selectedItem.quantity || 0, (selectedItem.storeQuantity || 0) + (selectedItem.dispensaryQuantity || 0));
+      const effQty = typeof selectedItem.quantity === 'number' ? Math.max(0, selectedItem.quantity) : 0;
 
       newCart[idx].selectedBatchId = batchId;
       newCart[idx].batchNumber = selectedItem.batchNumber;
@@ -749,6 +758,12 @@ export default function PosTerminal({
 
   const removeFromCart = (idx: number) => {
     setCart(cart.filter((_, i) => i !== idx));
+  };
+
+  const updateCartPrice = (idx: number, newPrice: number | undefined, rawStr?: string) => {
+    const newCart = [...cart];
+    newCart[idx] = { ...newCart[idx], overridePrice: newPrice, overridePriceStr: rawStr };
+    setCart(newCart);
   };
 
   // Calculation parameters
@@ -807,11 +822,14 @@ export default function PosTerminal({
     setSelectedCustomerId('');
     setDiscountAmount(0);
     setDiscountValue(0);
+    setDiscountValueRaw('');
     setDiscountType('fixed');
     setVatPercent(15);
+    setVatPercentRaw('15');
     setPaymentMethod('Cash');
     setCustomerTin('');
     setSplitDetails({ cash: 0, card: 0, credit: 0, cbe: 0, boa: 0, awash: 0, dashen: 0, other: 0 });
+    setSplitDetailsRaw({});
     showToast('Active sale placed on hold.', 'success');
   };
 
@@ -825,12 +843,21 @@ export default function PosTerminal({
     setSelectedCustomerId(target.selectedCustomerId || '');
     setDiscountAmount(target.discountAmount || 0);
     setDiscountValue(target.discountAmount || 0);
+    setDiscountValueRaw(target.discountAmount ? String(target.discountAmount) : '');
     setDiscountType('fixed');
     setVatPercent(target.vatPercent !== undefined ? target.vatPercent : 0);
+    setVatPercentRaw(target.vatPercent !== undefined ? String(target.vatPercent) : '0');
     setPaymentMethod(target.paymentMethod || 'Cash');
     setCustomerTin(target.customerTin || '');
     if (target.splitDetails) {
       setSplitDetails(target.splitDetails);
+      const rawMap: Record<string, string> = {};
+      Object.entries(target.splitDetails).forEach(([k, v]) => {
+        if (v) rawMap[k] = String(v);
+      });
+      setSplitDetailsRaw(rawMap);
+    } else {
+      setSplitDetailsRaw({});
     }
 
     // Remove from held list
@@ -1224,10 +1251,13 @@ export default function PosTerminal({
       setSelectedCustomerId('');
       setDiscountAmount(0);
       setDiscountValue(0);
+      setDiscountValueRaw('');
       setDiscountType('fixed');
       setVatPercent(0);
+      setVatPercentRaw('0');
       setCustomerTin('');
       setSplitDetails({ cash: 0, card: 0, credit: 0, cbe: 0, boa: 0, awash: 0, dashen: 0, other: 0 });
+      setSplitDetailsRaw({});
 
       if (expressCheckout) {
         setCompletedSale(null);
@@ -1363,10 +1393,13 @@ export default function PosTerminal({
       setSelectedCustomerId('');
       setDiscountAmount(0);
       setDiscountValue(0);
+      setDiscountValueRaw('');
       setDiscountType('fixed');
       setVatPercent(0);
+      setVatPercentRaw('0');
       setCustomerTin('');
       setSplitDetails({ cash: 0, card: 0, credit: 0, cbe: 0, boa: 0, awash: 0, dashen: 0, other: 0 });
+      setSplitDetailsRaw({});
     } finally {
       setSubmittingCheckout(false);
     }
@@ -1756,55 +1789,17 @@ export default function PosTerminal({
                         }`}>
                           {totalBranchQty > 0 ? (
                             `${totalBranchQty} in stock`
-                          ) : storeOnlyQty > 0 ? (
-                            `0 in POS (${storeOnlyQty} in Store)`
                           ) : damagedQty > 0 ? (
-                            `0 in POS (${damagedQty} Damaged)`
+                            `0 in stock (${damagedQty} Damaged)`
                           ) : expiredQty > 0 ? (
-                            `0 in POS (${expiredQty} Expired)`
+                            `0 in stock (${expiredQty} Expired)`
                           ) : otherBranchQty > 0 ? (
-                            `0 in POS (${otherBranchQty} Other Branch)`
+                            `0 in stock (${otherBranchQty} Other Branch)`
                           ) : (
                             '0 in stock'
                           )}
                         </span>
                       </div>
-
-                      {storeOnlyQty > 0 && storeStockItems.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            const targetItem = storeStockItems[0];
-                            if (!targetItem) return;
-                            const qtyToTrans = targetItem.storeQuantity !== undefined ? targetItem.storeQuantity : targetItem.quantity;
-                            try {
-                              const res = await fetch('/api/inventory/transfer-to-dispensary', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  stockItemId: targetItem.id,
-                                  transferQty: qtyToTrans,
-                                  operatorId: currentUser?.id
-                                })
-                              });
-                              if (res.ok) {
-                                showToast(`⚡ Transferred ${qtyToTrans} units of ${m.name} from Store to POS Dispensary!`);
-                                if (onSaleCompleted) onSaleCompleted();
-                              } else {
-                                const err = await res.json();
-                                alert(`Transfer Failed: ${err.error}`);
-                              }
-                            } catch (err) {
-                              alert('Network error executing transfer');
-                            }
-                          }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-bold py-1.5 px-2 rounded-lg shadow-xs cursor-pointer transition-colors flex items-center gap-1"
-                          title="Transfer available stock from main store to POS dispensary"
-                        >
-                          ⚡ Transfer to Disp
-                        </button>
-                      )}
 
                       <button
                         type="button"
@@ -2066,8 +2061,45 @@ export default function PosTerminal({
                               className="w-11 text-[10px] border border-gray-200 rounded p-0.5 text-center font-bold outline-none"
                             />
                           </td>
-                          <td className="p-2 text-right font-mono text-[11px] text-gray-700 font-bold whitespace-nowrap">
-                            {(item.overridePrice !== undefined ? item.overridePrice : getPosItemPrice(item.medicine, item.selectedBatchId)).toFixed(2)} <span className="text-[9px] text-gray-400 font-normal">ETB</span>
+                          <td className="p-2 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={
+                                  item.overridePriceStr !== undefined
+                                    ? item.overridePriceStr
+                                    : (item.overridePrice !== undefined
+                                        ? String(item.overridePrice)
+                                        : String(getPosItemPrice(item.medicine, item.selectedBatchId)))
+                                }
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(',', '.');
+                                  if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
+                                    const parsed = raw === '' || raw === '.' ? undefined : parseFloat(raw);
+                                    updateCartPrice(idx, parsed !== undefined && !isNaN(parsed) ? parsed : undefined, raw);
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (item.overridePriceStr !== undefined) {
+                                    if (item.overridePriceStr === '' || item.overridePriceStr === '.') {
+                                      updateCartPrice(idx, undefined, undefined);
+                                    } else {
+                                      const parsed = parseFloat(item.overridePriceStr);
+                                      if (!isNaN(parsed)) {
+                                        updateCartPrice(idx, parsed, String(parsed));
+                                      } else {
+                                        updateCartPrice(idx, undefined, undefined);
+                                      }
+                                    }
+                                  }
+                                }}
+                                className="w-16 text-right font-mono text-[11px] text-gray-800 font-bold border border-gray-200 rounded px-1 py-0.5 outline-none focus:border-emerald-500 bg-white"
+                                title="Click to override item selling price (supports decimal points e.g. 15.75)"
+                                placeholder="0.00"
+                              />
+                              <span className="text-[9px] text-gray-400 font-normal">ETB</span>
+                            </div>
                           </td>
                           <td className="p-2 text-right font-mono font-bold text-gray-900">
                             {((item.overridePrice !== undefined ? item.overridePrice : getPosItemPrice(item.medicine, item.selectedBatchId)) * item.quantity).toFixed(2)}
@@ -2231,13 +2263,21 @@ export default function PosTerminal({
                     <div key={field.key} className="space-y-0.5">
                       <label className="font-semibold text-gray-500 block">{field.label}</label>
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={splitDetails[field.key] || ''}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={splitDetailsRaw[field.key] !== undefined ? splitDetailsRaw[field.key] : (splitDetails[field.key] ? String(splitDetails[field.key]) : '')}
                         onChange={(e) => {
-                          const val = Math.max(0, Number(e.target.value));
-                          setSplitDetails(prev => ({ ...prev, [field.key]: val }));
+                          const raw = e.target.value.replace(',', '.');
+                          if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
+                            setSplitDetailsRaw(prev => ({ ...prev, [field.key]: raw }));
+                            const val = raw === '' || raw === '.' ? 0 : parseFloat(raw) || 0;
+                            setSplitDetails(prev => ({ ...prev, [field.key]: val }));
+                          }
+                        }}
+                        onBlur={() => {
+                          const currentVal = splitDetails[field.key];
+                          setSplitDetailsRaw(prev => ({ ...prev, [field.key]: currentVal ? String(currentVal) : '' }));
                         }}
                         className="w-full text-xs bg-gray-50 border border-gray-200 rounded p-1 outline-none font-bold font-mono text-gray-800"
                       />
@@ -2266,6 +2306,7 @@ export default function PosTerminal({
                       const newType = e.target.value as 'fixed' | 'percent';
                       setDiscountType(newType);
                       setDiscountValue(0);
+                      setDiscountValueRaw('');
                       setDiscountAmount(0);
                     }}
                     className="w-full text-xs bg-white border border-gray-200 rounded-lg p-2 outline-none text-gray-800 font-bold transition-all focus:border-indigo-500"
@@ -2280,15 +2321,21 @@ export default function PosTerminal({
                     {discountType === 'percent' ? 'Rate (%)' : 'Amount (ETB)'}
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    max={discountType === 'percent' ? 100 : undefined}
-                    value={discountValue || ''}
+                    type="text"
+                    inputMode="decimal"
+                    value={discountValueRaw !== '' ? discountValueRaw : (discountValue ? String(discountValue) : '')}
                     onChange={(e) => {
-                      const val = Math.max(0, Number(e.target.value));
-                      setDiscountValue(val);
+                      const raw = e.target.value.replace(',', '.');
+                      if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
+                        setDiscountValueRaw(raw);
+                        const val = raw === '' || raw === '.' ? 0 : parseFloat(raw) || 0;
+                        setDiscountValue(val);
+                      }
                     }}
-                    placeholder="0"
+                    onBlur={() => {
+                      setDiscountValueRaw(discountValue ? String(discountValue) : '');
+                    }}
+                    placeholder="0.00"
                     className="w-full text-xs bg-white border border-gray-200 rounded-lg p-2 outline-none text-gray-800 font-mono font-bold transition-all focus:border-indigo-500"
                   />
                 </div>
@@ -2299,11 +2346,20 @@ export default function PosTerminal({
             <div className="space-y-1 text-left">
               <label className="text-xs font-bold text-gray-700 block">VAT Percent (%)</label>
               <input
-                type="number"
-                min="0"
-                max="100"
-                value={vatPercent}
-                onChange={(e) => setVatPercent(Math.max(0, Math.min(100, Number(e.target.value))))}
+                type="text"
+                inputMode="decimal"
+                value={vatPercentRaw !== '' ? vatPercentRaw : String(vatPercent)}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(',', '.');
+                  if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
+                    setVatPercentRaw(raw);
+                    const val = raw === '' || raw === '.' ? 0 : Math.max(0, Math.min(100, parseFloat(raw) || 0));
+                    setVatPercent(val);
+                  }
+                }}
+                onBlur={() => {
+                  setVatPercentRaw(String(vatPercent));
+                }}
                 className="w-full text-xs bg-white border border-gray-200 rounded-lg p-2 outline-none text-gray-800 font-mono font-bold"
               />
             </div>
@@ -2483,9 +2539,17 @@ export default function PosTerminal({
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-gray-700 block">Credit Limit (ETB)</label>
                   <input
-                    type="number"
-                    value={newCustomer.creditLimit}
-                    onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: Number(e.target.value) }))}
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={newCustomer.creditLimit ?? ''}
+                    onChange={(e) => {
+                      const sanitized = e.target.value.replace(',', '.');
+                      if (sanitized === '' || /^\d*\.?\d*$/.test(sanitized)) {
+                        const num = sanitized === '' || sanitized === '.' ? 0 : parseFloat(sanitized) || 0;
+                        setNewCustomer(prev => ({ ...prev, creditLimit: num }));
+                      }
+                    }}
                     className="w-full p-2 border border-gray-200 rounded text-xs text-gray-800 outline-none"
                   />
                 </div>

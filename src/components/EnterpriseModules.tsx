@@ -6,17 +6,19 @@ import {
   Trash2, ShieldCheck, AlertCircle, RefreshCw, Layers, Lock,
   Search, X, FileSpreadsheet, Bell, Mail, Phone, Send, FileText, CheckCircle2, Receipt, Building, Activity, Laptop, MessageSquare,
   Edit, RotateCcw, Key, Copy, EyeOff, Eye, Video, Play, Upload, Film, Sparkles, Tag, Megaphone, Percent, FolderTree,
-  Globe, UserCheck, Repeat, Clock, MousePointer
+  Globe, UserCheck, Repeat, Clock, MousePointer, AlertTriangle, Calendar, Paperclip, Download, Image as ImageIcon,
+  ScanLine, Camera, CreditCard
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend 
 } from 'recharts';
 import { 
-  Branch, User, Medicine, StockItem, Supplier, 
+  Branch, User, Medicine, StockItem, Supplier, SupplierTransaction,
   PurchaseOrder, StockTransfer, Customer, Expense, AuditLog, Sale, PharmacyNote, UserRole, ProductCategory,
   VisitorLogEntry, VisitorStats
 } from '../types.ts';
 import CategoryManagerPanel from './CategoryManagerPanel.tsx';
+import { ScanItemsModal } from './ScanItemsModal';
 
 // ==================== 1. STOCK TRANSFER MANAGER ====================
 interface StockTransferPanelProps {
@@ -1464,11 +1466,12 @@ interface PurchaseManagerPanelProps {
   defaultSubModule?: 'orders' | 'suppliers';
   hideTabs?: boolean;
   activeBranchId?: string;
+  onOpenOutboundCreditNotificationPanel?: () => void;
 }
 
 export function PurchaseManagerPanel({ 
   currentUser, branches, medicines, suppliers, purchaseOrders, onDataChanged,
-  defaultSubModule, hideTabs, activeBranchId 
+  defaultSubModule, hideTabs, activeBranchId, onOpenOutboundCreditNotificationPanel
 }: PurchaseManagerPanelProps) {
   const [instName, setInstName] = useState('Sonan Pharmacy');
 
@@ -1551,8 +1554,10 @@ export function PurchaseManagerPanel({
   const [activeSubModule, setActiveSubModule] = useState<'orders' | 'suppliers'>('suppliers');
 
   // Supplier sub-views & drill down states
-  const [supplierSubView, setSupplierSubView] = useState<'ledger' | 'analysis'>('ledger');
+  const [supplierSubView, setSupplierSubView] = useState<'ledger' | 'credits' | 'analysis'>('ledger');
   const [selectedAnalysisSupplierId, setSelectedAnalysisSupplierId] = useState<string>('');
+  const [selectedCreditSupplierId, setSelectedCreditSupplierId] = useState<string>('all');
+  const [creditSearchQuery, setCreditSearchQuery] = useState<string>('');
 
   // Supplier transaction lists
   const [supplierTransactions, setSupplierTransactions] = useState<any[]>([]);
@@ -1563,17 +1568,137 @@ export function PurchaseManagerPanel({
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [showEditSupplierModal, setShowEditSupplierModal] = useState(false);
+  const [showScanInvoiceModal, setShowScanInvoiceModal] = useState(false);
   const [supplierToDelete, setSupplierToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Form states
-  const [newSup, setNewSup] = useState({ name: '', phone: '', email: '', address: '', balance: 0 });
+  const [newSup, setNewSup] = useState<{ name: string; phone: string; email: string; address: string; balance: number | string }>({ name: '', phone: '', email: '', address: '', balance: 0 });
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
-  const [paymentForm, setPaymentForm] = useState({ supplierId: '', amount: 0, reference: '', notes: '', date: new Date().toISOString().split('T')[0], creditTransactionId: '' });
-  const [creditForm, setCreditForm] = useState({ supplierId: '', amount: 0, reference: '', notes: '', date: new Date().toISOString().split('T')[0], dueDate: '', paymentTerms: 'Net 30' });
+  const [paymentForm, setPaymentForm] = useState({ 
+    supplierId: '', 
+    amount: 0 as number | string, 
+    reference: '', 
+    notes: '', 
+    date: new Date().toISOString().split('T')[0], 
+    creditTransactionId: '',
+    recipientName: '',
+    receiptAttachment: '',
+    receiptFileName: ''
+  });
+  const [creditForm, setCreditForm] = useState({ supplierId: '', amount: 0 as number | string, reference: '', notes: '', date: new Date().toISOString().split('T')[0], dueDate: '', paymentTerms: 'Net 30' });
+
+  // Receipt attachment and viewer states
+  const [selectedReceiptTx, setSelectedReceiptTx] = useState<SupplierTransaction | null>(null);
+  const [attachingReceiptTx, setAttachingReceiptTx] = useState<SupplierTransaction | null>(null);
+  const [attachRecipientInput, setAttachRecipientInput] = useState('');
+  const [attachFileUrl, setAttachFileUrl] = useState('');
+  const [attachFileName, setAttachFileName] = useState('');
+  const [savingReceipt, setSavingReceipt] = useState(false);
+  const paymentFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const attachFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleReceiptFile = (file: File, target: 'payment' | 'direct') => {
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size exceeds 5MB limit. Please upload a smaller document or receipt image.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      if (target === 'payment') {
+        setPaymentForm(prev => ({
+          ...prev,
+          receiptAttachment: result,
+          receiptFileName: file.name
+        }));
+      } else {
+        setAttachFileUrl(result);
+        setAttachFileName(file.name);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveReceiptAttachment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!attachingReceiptTx) return;
+    try {
+      setSavingReceipt(true);
+      const res = await fetch(`/api/suppliers/transactions/${attachingReceiptTx.id}/attach-receipt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientName: attachRecipientInput,
+          receiptAttachment: attachFileUrl || attachingReceiptTx.receiptAttachment || '',
+          receiptFileName: attachFileName || attachingReceiptTx.receiptFileName || '',
+          operatorId: currentUser?.id
+        })
+      });
+      if (res.ok) {
+        setAttachingReceiptTx(null);
+        setAttachRecipientInput('');
+        setAttachFileUrl('');
+        setAttachFileName('');
+        fetchTransactions();
+        onDataChanged();
+      } else {
+        const err = await res.json();
+        alert(`Error: ${err.error || 'Failed to save receipt proof.'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Network Error: Failed to attach receipt proof.');
+    } finally {
+      setSavingReceipt(false);
+    }
+  };
 
   // Filters
   const [txSupplierFilter, setTxSupplierFilter] = useState('');
   const [txTypeFilter, setTxTypeFilter] = useState('');
+  const [txDateFilter, setTxDateFilter] = useState('');
+  const [txMinAmount, setTxMinAmount] = useState('');
+  const [txMaxAmount, setTxMaxAmount] = useState('');
+  const [txDueStatusFilter, setTxDueStatusFilter] = useState<'all' | 'due_reached' | 'unpaid' | 'paid'>('all');
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Due Date Reached Notifications calculation
+  const dueTransactions = supplierTransactions.filter(tx => {
+    if (activeBranchId && activeBranchId !== 'all' && tx.branchId && tx.branchId !== activeBranchId) return false;
+    return tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && tx.dueDate && tx.dueDate <= todayStr;
+  });
+
+  const totalDueDebt = dueTransactions.reduce((sum, tx) => sum + (tx.amount - (tx.paidAmount || 0)), 0);
+
+  const filteredTransactions = supplierTransactions
+    .filter(tx => !activeBranchId || activeBranchId === 'all' || !tx.branchId || tx.branchId === activeBranchId)
+    .filter(tx => !txSupplierFilter || tx.supplierId === txSupplierFilter)
+    .filter(tx => !txTypeFilter || tx.type === txTypeFilter)
+    .filter(tx => {
+      if (!txDateFilter) return true;
+      return tx.date === txDateFilter;
+    })
+    .filter(tx => {
+      const min = parseFloat(txMinAmount);
+      if (!isNaN(min) && tx.amount < min) return false;
+      const max = parseFloat(txMaxAmount);
+      if (!isNaN(max) && tx.amount > max) return false;
+      return true;
+    })
+    .filter(tx => {
+      if (txDueStatusFilter === 'all') return true;
+      if (txDueStatusFilter === 'due_reached') {
+        return tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && tx.dueDate && tx.dueDate <= todayStr;
+      }
+      if (txDueStatusFilter === 'unpaid') {
+        return tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid';
+      }
+      if (txDueStatusFilter === 'paid') {
+        return tx.paymentStatus === 'Paid' || tx.type === 'Payment';
+      }
+      return true;
+    });
 
   const fetchTransactions = async () => {
     try {
@@ -1619,7 +1744,7 @@ export function PurchaseManagerPanel({
       const res = await fetch(`/api/suppliers/${editingSupplier.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...editingSupplier, operatorId: currentUser?.id })
+        body: JSON.stringify({ ...editingSupplier, balance: parseFloat(String(editingSupplier.balance)) || 0, operatorId: currentUser?.id })
       });
       if (res.ok) {
         setShowEditSupplierModal(false);
@@ -1637,39 +1762,66 @@ export function PurchaseManagerPanel({
   };
 
   const exportFilteredTransactionsCsv = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Supplier Transactions Ledger (Filtered)\r\n";
-    csvContent += "Transaction ID,Date,Supplier Name,Transaction Type,Amount (ETB),Payment Due Date,Reference/Receipt No,Payment Status,Notes\r\n";
+    let csvContent = "\uFEFF"; // UTF-8 BOM for direct Microsoft Excel compatibility
+    csvContent += "Credit Ledger & Supplier Financial Movements\r\n";
+    csvContent += `Generated On: ${new Date().toLocaleString()},Scope: ${activeBranchId === 'all' || !activeBranchId ? 'All Branches' : activeBranchId},Supplier: ${txSupplierFilter ? (suppliers.find(s => s.id === txSupplierFilter)?.name || txSupplierFilter) : 'All Suppliers'},Type: ${txTypeFilter || 'All'},Date Filter: ${txDateFilter || 'All'}\r\n\r\n`;
+    csvContent += "Transaction ID,Date,Supplier Name,Transaction Type,Amount (ETB),Payment Due Date,Due Status,Payment Status,Outstanding Balance (ETB),Reference / Bill No,Payment Recipient,Receipt Attached,Branch,Notes\r\n";
     
-    const filteredTx = supplierTransactions
-      .filter(tx => !activeBranchId || activeBranchId === 'all' || !tx.branchId || tx.branchId === activeBranchId)
-      .filter(tx => !txSupplierFilter || tx.supplierId === txSupplierFilter)
-      .filter(tx => !txTypeFilter || tx.type === txTypeFilter);
-      
-    filteredTx.forEach(tx => {
+    filteredTransactions.forEach(tx => {
       const sName = suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier';
-      const status = tx.type === 'Purchase Credit' ? (tx.paymentStatus || 'Pending') : 'N/A';
+      const status = tx.type === 'Purchase Credit' ? (tx.paymentStatus || 'Pending') : 'Payment Settled';
+      const outstanding = tx.type === 'Purchase Credit' ? (tx.amount - (tx.paidAmount || 0)) : 0;
+      
+      let dueStatus = 'N/A';
+      if (tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && tx.dueDate) {
+        if (tx.dueDate < todayStr) {
+          const diffDays = Math.ceil((new Date(todayStr).getTime() - new Date(tx.dueDate).getTime()) / (1000 * 3600 * 24));
+          dueStatus = `OVERDUE (${diffDays} days)`;
+        } else if (tx.dueDate === todayStr) {
+          dueStatus = 'DUE TODAY';
+        } else {
+          dueStatus = 'Upcoming';
+        }
+      } else if (tx.paymentStatus === 'Paid') {
+        dueStatus = 'Settled in Full';
+      }
+
       const row = [
-        tx.id,
-        tx.date,
+        `"${tx.id}"`,
+        `"${tx.date}"`,
         `"${sName.replace(/"/g, '""')}"`,
-        tx.type,
+        `"${tx.type}"`,
         tx.amount,
-        tx.dueDate || 'N/A',
+        `"${tx.dueDate || 'N/A'}"`,
+        `"${dueStatus}"`,
+        `"${status}"`,
+        outstanding,
         `"${(tx.reference || '').replace(/"/g, '""')}"`,
-        status,
+        `"${(tx.recipientName || '').replace(/"/g, '""')}"`,
+        `"${tx.receiptAttachment ? 'Yes' : 'No'}"`,
+        `"${tx.branchId || 'All'}"`,
         `"${(tx.notes || '').replace(/"/g, '""')}"`
       ].join(",");
       csvContent += row + "\r\n";
     });
 
-    const encodedUri = encodeURI(csvContent);
+    const totalFilteredCredits = filteredTransactions.filter(t => t.type === 'Purchase Credit').reduce((s, t) => s + t.amount, 0);
+    const totalFilteredPayments = filteredTransactions.filter(t => t.type === 'Payment').reduce((s, t) => s + t.amount, 0);
+    const totalFilteredOutstanding = filteredTransactions.filter(t => t.type === 'Purchase Credit').reduce((s, t) => s + (t.amount - (t.paidAmount || 0)), 0);
+
+    csvContent += `\r\n,,,Total Credits,${totalFilteredCredits} ETB,,,,,,,\r\n`;
+    csvContent += `,,,Total Payments Settled,${totalFilteredPayments} ETB,,,,,,,\r\n`;
+    csvContent += `,,,Total Outstanding Debt,${totalFilteredOutstanding} ETB,,,,,,,\r\n`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `supplier_ledger_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `credit_ledger_export_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleDeleteSupplier = async (supplierId: string) => {
@@ -1718,7 +1870,7 @@ export function PurchaseManagerPanel({
       const res = await fetch('/api/suppliers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newSup, operatorId: currentUser?.id })
+        body: JSON.stringify({ ...newSup, balance: parseFloat(String(newSup.balance)) || 0, operatorId: currentUser?.id })
       });
       if (res.ok) {
         setShowSupplierModal(false);
@@ -1735,7 +1887,8 @@ export function PurchaseManagerPanel({
 
   const handleCreatePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!paymentForm.supplierId || paymentForm.amount <= 0) {
+    const payAmount = parseFloat(String(paymentForm.amount)) || 0;
+    if (!paymentForm.supplierId || payAmount <= 0) {
       alert('Please select a supplier and input a valid payment amount.');
       return;
     }
@@ -1746,6 +1899,7 @@ export function PurchaseManagerPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...paymentForm,
+          amount: payAmount,
           type: 'Payment',
           operatorId: currentUser?.id,
           branchId: activeBranch
@@ -1753,7 +1907,17 @@ export function PurchaseManagerPanel({
       });
       if (res.ok) {
         setShowPaymentModal(false);
-        setPaymentForm({ supplierId: '', amount: 0, reference: '', notes: '', date: new Date().toISOString().split('T')[0], creditTransactionId: '' });
+        setPaymentForm({ 
+          supplierId: '', 
+          amount: 0, 
+          reference: '', 
+          notes: '', 
+          date: new Date().toISOString().split('T')[0], 
+          creditTransactionId: '',
+          recipientName: '',
+          receiptAttachment: '',
+          receiptFileName: ''
+        });
         fetchTransactions();
         onDataChanged();
       } else {
@@ -1767,7 +1931,8 @@ export function PurchaseManagerPanel({
 
   const handleCreateCredit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!creditForm.supplierId || creditForm.amount <= 0) {
+    const creditAmount = parseFloat(String(creditForm.amount)) || 0;
+    if (!creditForm.supplierId || creditAmount <= 0) {
       alert('Please select a supplier and input a valid invoice amount.');
       return;
     }
@@ -1778,6 +1943,7 @@ export function PurchaseManagerPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...creditForm,
+          amount: creditAmount,
           type: 'Purchase Credit',
           operatorId: currentUser?.id,
           branchId: activeBranch
@@ -1877,7 +2043,7 @@ export function PurchaseManagerPanel({
         body: JSON.stringify({
           supplierId,
           branchId,
-          items: poLines,
+          items: poLines.map(l => ({ ...l, quantity: Number(l.quantity) || 1, unitPrice: parseFloat(String(l.unitPrice)) || 0 })),
           operatorId: currentUser?.id
         })
       });
@@ -1995,6 +2161,15 @@ export function PurchaseManagerPanel({
               <span className="text-xs font-bold text-slate-700">Quick Journal Adjustments:</span>
               <button
                 type="button"
+                onClick={() => setShowScanInvoiceModal(true)}
+                className="bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 shadow-xs cursor-pointer transition"
+                title="Scan items from photo or upload supplier invoice"
+              >
+                <ScanLine className="h-3.5 w-3.5" />
+                Scan / Upload Purchase Invoice
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   if (suppliers.length === 0) { alert('No suppliers registered yet.'); return; }
                   setPaymentForm(p => ({ ...p, supplierId: suppliers[0].id }));
@@ -2018,34 +2193,62 @@ export function PurchaseManagerPanel({
             </div>
 
             {/* Sub-tab selection for Supplier panel */}
-            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
-              <button
-                type="button"
-                onClick={() => setSupplierSubView('ledger')}
-                className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                  supplierSubView === 'ledger'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-750'
-                }`}
-              >
-                Outstanding Balances &amp; Ledgers
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSupplierSubView('analysis');
-                  if (!selectedAnalysisSupplierId && suppliers.length > 0) {
-                    setSelectedAnalysisSupplierId(suppliers[0].id);
-                  }
-                }}
-                className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                  supplierSubView === 'analysis'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-750'
-                }`}
-              >
-                📊 Sourcing Analysis &amp; Purchase History Drill-down
-              </button>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="flex flex-1 bg-gray-100 p-1 rounded-xl border border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setSupplierSubView('ledger')}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    supplierSubView === 'ledger'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-750'
+                  }`}
+                >
+                  Ledgers &amp; Movements
+                </button>
+                <button
+                  type="button"
+                  id="tab-supplier-credits-btn"
+                  onClick={() => setSupplierSubView('credits')}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    supplierSubView === 'credits'
+                      ? 'bg-white text-rose-700 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-750'
+                  }`}
+                >
+                  <Receipt className="h-3.5 w-3.5 text-rose-600" />
+                  <span>💳 Total Credit by Supplier (Separate Accounts)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSupplierSubView('analysis');
+                    if (!selectedAnalysisSupplierId && suppliers.length > 0) {
+                      setSelectedAnalysisSupplierId(suppliers[0].id);
+                    }
+                  }}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    supplierSubView === 'analysis'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-750'
+                  }`}
+                >
+                  📊 Sourcing Drill-down
+                </button>
+              </div>
+
+              {onOpenOutboundCreditNotificationPanel && (
+                <button
+                  type="button"
+                  id="open-outbound-credit-panel-btn"
+                  onClick={onOpenOutboundCreditNotificationPanel}
+                  className="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                  title="Open Dedicated Outbound Credit Notification Panel"
+                >
+                  <Bell className="h-3.5 w-3.5 animate-pulse" />
+                  <span>Outbound Credit Alerts</span>
+                </button>
+              )}
             </div>
 
             {supplierSubView === 'ledger' ? (
@@ -2053,63 +2256,86 @@ export function PurchaseManagerPanel({
                 
                 {/* Suppliers List table (2 cols) */}
                 <div className="lg:col-span-2 space-y-3">
-                  <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Suppliers Outstanding Balances</h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Suppliers Accounts &amp; Credits</h4>
+                    <span className="text-[10px] text-gray-500 font-medium">Click Credit for individual breakdown</span>
+                  </div>
                   <div className="bg-white border border-gray-150 rounded-xl overflow-x-auto text-xs scrollbar-thin">
                     <table className="min-w-full text-left">
                       <thead className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-700">
                         <tr>
                           <th className="p-2.5">Supplier Name</th>
                           <th className="p-2.5">Contact</th>
-                          <th className="p-2.5 text-right">Balance Due</th>
+                          <th className="p-2.5 text-right" title="Sum of all credit purchases incurred">Total Credit</th>
+                          <th className="p-2.5 text-right" title="Current unsettled balance due">Balance Due</th>
                           <th className="p-2.5 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 text-gray-600">
-                        {suppliers.map(s => (
-                          <tr key={s.id} className="hover:bg-gray-55">
-                            <td className="p-2.5 font-semibold text-gray-800">{s.name}</td>
-                            <td className="p-2.5 text-[11px]">
-                              <span className="block font-mono font-medium">{s.phone}</span>
-                              <span className="block text-gray-400">{s.email || 'N/A'}</span>
-                            </td>
-                            <td className={`p-2.5 text-right font-mono font-bold ${s.balance > 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                              {s.balance.toLocaleString('en-US')} ETB
-                            </td>
-                            <td className="p-2.5 text-center space-x-1 flex items-center justify-center">
-                              <button
-                                onClick={() => {
-                                  setSelectedAnalysisSupplierId(s.id);
-                                  setSupplierSubView('analysis');
-                                }}
-                                className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition font-bold cursor-pointer inline-flex items-center gap-0.5"
-                                title="View Purchase History & Sourcing Analysis"
-                              >
-                                <Clipboard className="h-3 w-3" />
-                                <span>History</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setEditingSupplier(s);
-                                  setShowEditSupplierModal(true);
-                                }}
-                                className="p-1 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 rounded transition-all cursor-pointer inline-flex items-center"
-                                title="Edit Supplier"
-                              >
-                                <Edit className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setSupplierToDelete({ id: s.id, name: s.name })}
-                                className="p-1 text-red-500 hover:bg-red-50 hover:text-red-700 rounded transition-all cursor-pointer inline-flex items-center"
-                                title="Delete Supplier"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {suppliers.map(s => {
+                          const sCredits = supplierTransactions.filter(t => t.supplierId === s.id && t.type === 'Purchase Credit');
+                          const sTotalCredit = sCredits.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                          const displayTotalCredit = sTotalCredit > 0 ? sTotalCredit : (s.balance > 0 ? s.balance : 0);
+                          return (
+                            <tr key={s.id} className="hover:bg-gray-55">
+                              <td className="p-2.5 font-semibold text-gray-800">{s.name}</td>
+                              <td className="p-2.5 text-[11px]">
+                                <span className="block font-mono font-medium">{s.phone}</span>
+                                <span className="block text-gray-400">{s.email || 'N/A'}</span>
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-medium text-slate-700">
+                                {displayTotalCredit.toLocaleString('en-US')} ETB
+                              </td>
+                              <td className={`p-2.5 text-right font-mono font-bold ${s.balance > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                {s.balance.toLocaleString('en-US')} ETB
+                              </td>
+                              <td className="p-2.5 text-center space-x-1 flex items-center justify-center">
+                                <button
+                                  onClick={() => {
+                                    setSelectedCreditSupplierId(s.id);
+                                    setSupplierSubView('credits');
+                                  }}
+                                  className="px-1.5 py-0.5 rounded text-[10px] bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition font-bold cursor-pointer inline-flex items-center gap-0.5"
+                                  title="View separate credit invoices and balance for this supplier"
+                                >
+                                  <Receipt className="h-3 w-3" />
+                                  <span>Credits</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedAnalysisSupplierId(s.id);
+                                    setSupplierSubView('analysis');
+                                  }}
+                                  className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition font-bold cursor-pointer inline-flex items-center gap-0.5"
+                                  title="View Purchase History & Sourcing Analysis"
+                                >
+                                  <Clipboard className="h-3 w-3" />
+                                  <span>History</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingSupplier(s);
+                                    setShowEditSupplierModal(true);
+                                  }}
+                                  className="p-1 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 rounded transition-all cursor-pointer inline-flex items-center"
+                                  title="Edit Supplier"
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setSupplierToDelete({ id: s.id, name: s.name })}
+                                  className="p-1 text-red-500 hover:bg-red-50 hover:text-red-700 rounded transition-all cursor-pointer inline-flex items-center"
+                                  title="Delete Supplier"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                         {suppliers.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="p-4 text-center text-gray-400 italic">No suppliers registered yet.</td>
+                            <td colSpan={5} className="p-4 text-center text-gray-400 italic">No suppliers registered yet.</td>
                           </tr>
                         )}
                       </tbody>
@@ -2119,37 +2345,159 @@ export function PurchaseManagerPanel({
 
                 {/* Transactions Ledger Movements (3 cols) */}
                 <div className="lg:col-span-3 space-y-3">
+                  {/* Due Date Notification Banner */}
+                  {dueTransactions.length > 0 && (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+                      <div className="flex items-center gap-2.5 text-rose-900">
+                        <div className="p-2 bg-rose-100 rounded-full text-rose-600 shrink-0">
+                          <AlertTriangle className="h-4 w-4 animate-bounce" />
+                        </div>
+                        <div>
+                          <span className="font-bold text-xs block text-rose-950">
+                            ⚠️ Attention: {dueTransactions.length} Credit Invoice{dueTransactions.length > 1 ? 's have' : ' has'} reached or passed due date!
+                          </span>
+                          <span className="text-[11px] text-rose-700">
+                            Total outstanding overdue balance: <strong className="font-mono font-bold text-rose-900">{totalDueDebt.toLocaleString('en-US')} ETB</strong> awaiting payment settlement.
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setTxDueStatusFilter(prev => prev === 'due_reached' ? 'all' : 'due_reached')}
+                          className={`px-3 py-1 rounded text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            txDueStatusFilter === 'due_reached'
+                              ? 'bg-rose-700 text-white shadow'
+                              : 'bg-white border border-rose-300 text-rose-700 hover:bg-rose-100'
+                          }`}
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                          {txDueStatusFilter === 'due_reached' ? 'Show All Entries' : `Filter Due Invoices (${dueTransactions.length})`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex justify-between items-center flex-wrap gap-2">
-                    <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Financial Movements Ledger</h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Financial Movements Ledger</h4>
+                      <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono font-semibold">
+                        {filteredTransactions.length} records
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={exportFilteredTransactionsCsv}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold py-1 px-2.5 rounded shadow flex items-center gap-1.5 transition cursor-pointer"
+                      title="Export filtered records directly to Excel compatible CSV"
                     >
-                      <FileSpreadsheet className="h-3 w-3" />
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
                       Export Ledger to Excel
                     </button>
                   </div>
 
-                  {/* Filters Row */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={txSupplierFilter}
-                      onChange={(e) => setTxSupplierFilter(e.target.value)}
-                      className="bg-white border text-xs p-1.5 rounded outline-none w-full"
-                    >
-                      <option value="">All Suppliers</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                    <select
-                      value={txTypeFilter}
-                      onChange={(e) => setTxTypeFilter(e.target.value)}
-                      className="bg-white border text-xs p-1.5 rounded outline-none w-full"
-                    >
-                      <option value="">All Types</option>
-                      <option value="Payment">Payments Only</option>
-                      <option value="Purchase Credit">Purchase Credits Only</option>
-                    </select>
+                  {/* Filters Grid */}
+                  <div className="bg-gray-50 border border-gray-200 p-2.5 rounded-xl space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      {/* Supplier Filter */}
+                      <div>
+                        <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Supplier</label>
+                        <select
+                          value={txSupplierFilter}
+                          onChange={(e) => setTxSupplierFilter(e.target.value)}
+                          className="bg-white border border-gray-300 text-xs p-1.5 rounded outline-none w-full"
+                        >
+                          <option value="">All Suppliers</option>
+                          {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+
+                      {/* Movement Type Filter */}
+                      <div>
+                        <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Type</label>
+                        <select
+                          value={txTypeFilter}
+                          onChange={(e) => setTxTypeFilter(e.target.value)}
+                          className="bg-white border border-gray-300 text-xs p-1.5 rounded outline-none w-full"
+                        >
+                          <option value="">All Types</option>
+                          <option value="Payment">Payments Only</option>
+                          <option value="Purchase Credit">Purchase Credits Only</option>
+                        </select>
+                      </div>
+
+                      {/* Payment/Tx Date Filter */}
+                      <div>
+                        <label className="block text-[10px] font-semibold text-gray-500 mb-0.5 flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-emerald-600" />
+                          <span>Payment / Tx Date</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={txDateFilter}
+                          onChange={(e) => setTxDateFilter(e.target.value)}
+                          className="bg-white border border-gray-300 text-xs p-1.5 rounded outline-none w-full font-mono"
+                        />
+                      </div>
+
+                      {/* Due Status Filter */}
+                      <div>
+                        <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Due &amp; Payment Status</label>
+                        <select
+                          value={txDueStatusFilter}
+                          onChange={(e) => setTxDueStatusFilter(e.target.value as any)}
+                          className="bg-white border border-gray-300 text-xs p-1.5 rounded outline-none w-full"
+                        >
+                          <option value="all">All Statuses</option>
+                          <option value="due_reached">⚠️ Due Date Reached / Overdue</option>
+                          <option value="unpaid">Unpaid Credits Only</option>
+                          <option value="paid">Paid &amp; Settled Only</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Amount Range Row */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-gray-200/70 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-semibold text-gray-500 flex items-center gap-0.5">
+                          <DollarSign className="h-3 w-3 text-gray-400" />
+                          Amount Range (ETB):
+                        </span>
+                        <input
+                          type="number"
+                          placeholder="Min ETB"
+                          value={txMinAmount}
+                          onChange={(e) => setTxMinAmount(e.target.value)}
+                          className="bg-white border border-gray-300 text-xs p-1 rounded w-24 outline-none font-mono"
+                        />
+                        <span className="text-gray-400">-</span>
+                        <input
+                          type="number"
+                          placeholder="Max ETB"
+                          value={txMaxAmount}
+                          onChange={(e) => setTxMaxAmount(e.target.value)}
+                          className="bg-white border border-gray-300 text-xs p-1 rounded w-24 outline-none font-mono"
+                        />
+                      </div>
+
+                      {(txSupplierFilter || txTypeFilter || txDateFilter || txMinAmount || txMaxAmount || txDueStatusFilter !== 'all') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTxSupplierFilter('');
+                            setTxTypeFilter('');
+                            setTxDateFilter('');
+                            setTxMinAmount('');
+                            setTxMaxAmount('');
+                            setTxDueStatusFilter('all');
+                          }}
+                          className="text-[11px] text-rose-600 hover:text-rose-800 font-semibold cursor-pointer underline flex items-center gap-1"
+                        >
+                          <X className="h-3 w-3" />
+                          Clear Filters
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="bg-white border border-gray-150 rounded-xl overflow-x-auto text-xs scrollbar-thin">
@@ -2167,14 +2515,19 @@ export function PurchaseManagerPanel({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 text-gray-600">
-                        {supplierTransactions
-                          .filter(tx => !activeBranchId || activeBranchId === 'all' || !tx.branchId || tx.branchId === activeBranchId)
-                          .filter(tx => !txSupplierFilter || tx.supplierId === txSupplierFilter)
-                          .filter(tx => !txTypeFilter || tx.type === txTypeFilter)
-                          .map(tx => {
+                        {filteredTransactions.map(tx => {
                             const sName = suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown';
                             const outstanding = tx.type === 'Purchase Credit' ? (tx.amount - (tx.paidAmount || 0)) : 0;
                             const isPaidCredit = tx.type === 'Purchase Credit' && tx.paymentStatus === 'Paid';
+                            const isDueReached = tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && tx.dueDate && tx.dueDate <= todayStr;
+                            const isOverdue = tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && tx.dueDate && tx.dueDate < todayStr;
+                            const isDueToday = tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && tx.dueDate && tx.dueDate === todayStr;
+                            
+                            let daysOverdue = 0;
+                            if (isOverdue && tx.dueDate) {
+                              const diffTime = Math.abs(new Date(todayStr).getTime() - new Date(tx.dueDate).getTime());
+                              daysOverdue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            }
                             
                             // Color statuses
                             let statusBadge = null;
@@ -2204,6 +2557,8 @@ export function PurchaseManagerPanel({
                               <tr key={tx.id} className={`transition ${
                                 isPaidCredit 
                                   ? 'bg-emerald-50/45 hover:bg-emerald-50/70 border-l-2 border-l-emerald-500' 
+                                  : isDueReached
+                                  ? 'bg-rose-50/40 hover:bg-rose-50/70 border-l-2 border-l-rose-500'
                                   : 'hover:bg-gray-55'
                               }`}>
                                 <td className="p-2.5 font-mono text-[10px]">{tx.date}</td>
@@ -2219,7 +2574,19 @@ export function PurchaseManagerPanel({
                                   {tx.type === 'Payment' ? '-' : '+'}{tx.amount.toLocaleString('en-US')} ETB
                                 </td>
                                 <td className="p-2.5">
-                                  <div className="font-mono text-slate-500 text-[10px]">{tx.dueDate || 'N/A'}</div>
+                                  <div className="font-mono text-slate-700 text-[10px] font-semibold">{tx.dueDate || 'N/A'}</div>
+                                  {isOverdue && (
+                                    <div className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 py-0.5 rounded border border-rose-200 inline-flex items-center gap-0.5 mt-0.5">
+                                      <AlertTriangle className="h-2.5 w-2.5" />
+                                      OVERDUE ({daysOverdue}d)
+                                    </div>
+                                  )}
+                                  {isDueToday && (
+                                    <div className="text-[9px] font-bold text-amber-800 bg-amber-100 px-1 py-0.5 rounded border border-amber-200 inline-flex items-center gap-0.5 mt-0.5">
+                                      <Clock className="h-2.5 w-2.5" />
+                                      DUE TODAY
+                                    </div>
+                                  )}
                                   {tx.paymentTerms && <div className="text-[9px] text-gray-400 font-semibold">{tx.paymentTerms}</div>}
                                 </td>
                                 <td className="p-2.5">
@@ -2228,8 +2595,25 @@ export function PurchaseManagerPanel({
                                 <td className="p-2.5 leading-tight">
                                   <span className="block font-mono font-semibold text-gray-700">{tx.reference || 'N/A'}</span>
                                   <span className="block text-[10px] text-gray-400 italic max-w-[120px] truncate" title={tx.notes}>{tx.notes || ''}</span>
+                                  {tx.recipientName && (
+                                    <div className="text-[9px] text-indigo-700 font-semibold flex items-center gap-1 mt-0.5 bg-indigo-50 border border-indigo-100 rounded px-1.5 py-0.5 max-w-fit">
+                                      <Users className="h-2.5 w-2.5 flex-shrink-0" />
+                                      <span className="truncate max-w-[110px]" title={`Recipient: ${tx.recipientName}`}>Recv: {tx.recipientName}</span>
+                                    </div>
+                                  )}
+                                  {tx.receiptAttachment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedReceiptTx(tx)}
+                                      className="text-[9px] text-emerald-700 hover:text-emerald-900 font-bold bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1 mt-0.5 cursor-pointer transition"
+                                      title="Click to view attached payment receipt"
+                                    >
+                                      <Paperclip className="h-2.5 w-2.5" />
+                                      <span>Proof Attached</span>
+                                    </button>
+                                  )}
                                 </td>
-                                <td className="p-2.5 text-center space-x-1">
+                                <td className="p-2.5 text-center space-x-1 whitespace-nowrap">
                                   {tx.type === 'Purchase Credit' && tx.paymentStatus !== 'Paid' && (
                                     <button
                                       onClick={() => {
@@ -2239,7 +2623,10 @@ export function PurchaseManagerPanel({
                                           reference: `${tx.reference || tx.id}`,
                                           notes: `Settlement for invoice: ${tx.reference || tx.id}`,
                                           date: new Date().toISOString().split('T')[0],
-                                          creditTransactionId: tx.id
+                                          creditTransactionId: tx.id,
+                                          recipientName: '',
+                                          receiptAttachment: '',
+                                          receiptFileName: ''
                                         });
                                         setShowPaymentModal(true);
                                       }}
@@ -2261,16 +2648,41 @@ export function PurchaseManagerPanel({
                                       {tx.paymentStatus === 'Paid' ? 'Mark Unpaid' : 'Mark Paid'}
                                     </button>
                                   )}
-                                  {tx.type !== 'Purchase Credit' && (
-                                    <span className="text-gray-400 font-mono text-[10px]">-</span>
+                                  {tx.receiptAttachment ? (
+                                    <button
+                                      onClick={() => setSelectedReceiptTx(tx)}
+                                      className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition font-bold cursor-pointer inline-flex items-center gap-0.5"
+                                      title="View payment receipt voucher proof"
+                                    >
+                                      <Eye className="h-2.5 w-2.5" />
+                                      Receipt
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => {
+                                        setAttachingReceiptTx(tx);
+                                        setAttachRecipientInput(tx.recipientName || '');
+                                        setAttachFileUrl('');
+                                        setAttachFileName('');
+                                      }}
+                                      className="px-1.5 py-0.5 rounded text-[10px] bg-gray-50 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 border border-gray-200 transition font-medium cursor-pointer inline-flex items-center gap-0.5"
+                                      title="Attach recipient or receipt proof"
+                                    >
+                                      <Paperclip className="h-2.5 w-2.5" />
+                                      Attach
+                                    </button>
                                   )}
                                 </td>
                               </tr>
                             );
                           })}
-                        {supplierTransactions.length === 0 && (
+                        {filteredTransactions.length === 0 && (
                           <tr>
-                            <td colSpan={8} className="p-6 text-center text-gray-400 italic">No financial movements logged yet. Adjust opening values or submit PO payments.</td>
+                            <td colSpan={8} className="p-6 text-center text-gray-400 italic">
+                              {supplierTransactions.length === 0 
+                                ? 'No financial movements logged yet. Adjust opening values or submit PO payments.' 
+                                : 'No transactions match the selected filters (supplier, type, date, amount, or due status).'}
+                            </td>
                           </tr>
                         )}
                       </tbody>
@@ -2278,6 +2690,455 @@ export function PurchaseManagerPanel({
                   </div>
                 </div>
 
+              </div>
+            ) : supplierSubView === 'credits' ? (
+              <div className="space-y-6">
+                {/* Outbound Credit Overview KPIs */}
+                {(() => {
+                  const allCreditTxs = supplierTransactions.filter(t => t.type === 'Purchase Credit');
+                  const allPaymentTxs = supplierTransactions.filter(t => t.type === 'Payment');
+                  const totalCreditIncurred = allCreditTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                  const totalPaymentsSettled = allPaymentTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                  const totalOutstandingDebt = suppliers.reduce((sum, s) => sum + (Number(s.balance) || 0), 0);
+                  const totalOverdueAmount = allCreditTxs
+                    .filter(t => t.paymentStatus !== 'Paid' && t.dueDate && t.dueDate < todayStr)
+                    .reduce((sum, t) => sum + ((Number(t.amount) || 0) - (Number(t.paidAmount) || 0)), 0);
+                  const overdueCount = allCreditTxs.filter(t => t.paymentStatus !== 'Paid' && t.dueDate && t.dueDate < todayStr).length;
+
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+                          <div className="flex items-center justify-between text-slate-500 mb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider">Total Credit Incurred</span>
+                            <CreditCard className="h-4 w-4 text-indigo-500" />
+                          </div>
+                          <div className="text-xl font-black text-slate-900 font-mono">
+                            {totalCreditIncurred.toLocaleString('en-US')} <span className="text-xs font-semibold text-slate-500">ETB</span>
+                          </div>
+                          <span className="text-[11px] text-slate-500 mt-1 block">Lifetime credit purchases recorded</span>
+                        </div>
+
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+                          <div className="flex items-center justify-between text-slate-500 mb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider">Total Settled Payments</span>
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                          </div>
+                          <div className="text-xl font-black text-emerald-700 font-mono">
+                            {totalPaymentsSettled.toLocaleString('en-US')} <span className="text-xs font-semibold text-slate-500">ETB</span>
+                          </div>
+                          <span className="text-[11px] text-emerald-600 mt-1 block">Payments remitted to suppliers</span>
+                        </div>
+
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+                          <div className="flex items-center justify-between text-slate-500 mb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider">Net Outbound Credit Debt</span>
+                            <Wallet className="h-4 w-4 text-amber-500" />
+                          </div>
+                          <div className={`text-xl font-black font-mono ${totalOutstandingDebt > 0 ? 'text-amber-700' : 'text-slate-800'}`}>
+                            {totalOutstandingDebt.toLocaleString('en-US')} <span className="text-xs font-semibold text-slate-500">ETB</span>
+                          </div>
+                          <span className="text-[11px] text-amber-700 font-medium mt-1 block">Total currently owed to all suppliers</span>
+                        </div>
+
+                        <div className="bg-white border border-rose-200 bg-rose-50/30 rounded-2xl p-4 shadow-xs">
+                          <div className="flex items-center justify-between text-rose-700 mb-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider">Overdue Credit Amount</span>
+                            <AlertTriangle className="h-4 w-4 text-rose-600 animate-bounce" />
+                          </div>
+                          <div className="text-xl font-black text-rose-700 font-mono">
+                            {totalOverdueAmount.toLocaleString('en-US')} <span className="text-xs font-semibold text-rose-600">ETB</span>
+                          </div>
+                          <span className="text-[11px] text-rose-600 font-medium mt-1 block">
+                            {overdueCount} {overdueCount === 1 ? 'invoice overdue' : 'invoices overdue'} past maturity
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Header controls & filter bar */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-xs">
+                        <div className="flex flex-1 items-center gap-3">
+                          <div className="relative flex-1 max-w-sm">
+                            <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text"
+                              value={creditSearchQuery}
+                              onChange={(e) => setCreditSearchQuery(e.target.value)}
+                              placeholder="Search supplier by name or phone..."
+                              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl outline-none focus:border-rose-500 bg-slate-50 focus:bg-white transition"
+                            />
+                            {creditSearchQuery && (
+                              <button
+                                onClick={() => setCreditSearchQuery('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="w-56">
+                            <select
+                              value={selectedCreditSupplierId}
+                              onChange={(e) => setSelectedCreditSupplierId(e.target.value)}
+                              className="w-full text-xs border border-slate-200 rounded-xl p-1.5 bg-slate-50 text-slate-700 outline-none focus:border-rose-500 cursor-pointer"
+                            >
+                              <option value="all">All Suppliers (Separate Accounts)</option>
+                              {suppliers.map(s => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} ({s.balance > 0 ? `${s.balance.toLocaleString()} ETB` : 'Settled'})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {onOpenOutboundCreditNotificationPanel && (
+                            <button
+                              type="button"
+                              onClick={onOpenOutboundCreditNotificationPanel}
+                              className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                              title="Open dedicated Outbound Credit Notification Panel with alerts and overdue drawer"
+                            >
+                              <Bell className="h-3.5 w-3.5 animate-pulse" />
+                              <span>View Outbound Alerts Tray</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCreditForm({
+                                supplierId: suppliers[0]?.id || '',
+                                amount: 0,
+                                reference: '',
+                                notes: '',
+                                date: new Date().toISOString().split('T')[0],
+                                dueDate: '',
+                                paymentTerms: 'Net 30'
+                              });
+                              setShowCreditModal(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                          >
+                            <CreditCard className="h-3.5 w-3.5" />
+                            <span>+ Record Credit Invoice</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Individual Supplier Credit Accounts */}
+                {(() => {
+                  const filteredSuppliers = suppliers
+                    .filter(s => {
+                      if (selectedCreditSupplierId !== 'all' && s.id !== selectedCreditSupplierId) return false;
+                      if (!creditSearchQuery) return true;
+                      const q = creditSearchQuery.toLowerCase();
+                      return s.name.toLowerCase().includes(q) || (s.phone && s.phone.includes(q));
+                    })
+                    .sort((a, b) => b.balance - a.balance);
+
+                  if (filteredSuppliers.length === 0) {
+                    return (
+                      <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">
+                        <CreditCard className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+                        <h4 className="font-bold text-slate-700 text-sm">No Supplier Matches Your Filter</h4>
+                        <p className="text-xs text-slate-500 mt-1">Try clearing your search query or selecting "All Suppliers".</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-6">
+                      {filteredSuppliers.map(sup => {
+                        const supCreditTxs = supplierTransactions
+                          .filter(t => t.supplierId === sup.id && t.type === 'Purchase Credit')
+                          .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+                        const supPaymentTxs = supplierTransactions
+                          .filter(t => t.supplierId === sup.id && t.type === 'Payment')
+                          .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+                        const supTotalCredit = supCreditTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                        const supTotalPaid = supPaymentTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                        const supBalance = sup.balance;
+
+                        const supOverdueTxs = supCreditTxs.filter(t => t.paymentStatus !== 'Paid' && t.dueDate && t.dueDate < todayStr);
+                        const supOverdueAmount = supOverdueTxs.reduce((sum, t) => sum + ((Number(t.amount) || 0) - (Number(t.paidAmount) || 0)), 0);
+
+                        return (
+                          <div
+                            key={sup.id}
+                            className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden transition-all hover:border-slate-300"
+                          >
+                            {/* Supplier Header Banner */}
+                            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 via-white to-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-base font-bold text-slate-900">{sup.name}</h3>
+                                  <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-semibold">
+                                    ID: {sup.id}
+                                  </span>
+                                  {supBalance > 0 ? (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-rose-600 animate-ping"></span>
+                                      {supBalance.toLocaleString('en-US')} ETB Outstanding
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                      <CheckCircle2 className="h-3 w-3" /> Account Settled in Full
+                                    </span>
+                                  )}
+                                  {supOverdueAmount > 0 && (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-red-600 text-white flex items-center gap-1 animate-pulse">
+                                      <AlertTriangle className="h-3 w-3" /> {supOverdueTxs.length} Overdue ({supOverdueAmount.toLocaleString('en-US')} ETB)
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                                  {sup.phone && <span>📞 {sup.phone}</span>}
+                                  {sup.email && <span>✉️ {sup.email}</span>}
+                                  {sup.address && <span>📍 {sup.address}</span>}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPaymentForm({
+                                      supplierId: sup.id,
+                                      amount: sup.balance > 0 ? sup.balance : 0,
+                                      reference: `PAY-${Date.now().toString().slice(-4)}`,
+                                      notes: `Payment to ${sup.name}`,
+                                      date: new Date().toISOString().split('T')[0],
+                                      creditTransactionId: '',
+                                      recipientName: '',
+                                      receiptAttachment: '',
+                                      receiptFileName: ''
+                                    });
+                                    setShowPaymentModal(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                  title={`Pay balance due to ${sup.name}`}
+                                >
+                                  <DollarSign className="h-3.5 w-3.5" />
+                                  <span>Pay Supplier</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCreditForm({
+                                      supplierId: sup.id,
+                                      amount: 0,
+                                      reference: `INV-${Date.now().toString().slice(-4)}`,
+                                      notes: `Credit invoice from ${sup.name}`,
+                                      date: new Date().toISOString().split('T')[0],
+                                      dueDate: '',
+                                      paymentTerms: 'Net 30'
+                                    });
+                                    setShowCreditModal(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer"
+                                  title={`Add credit invoice for ${sup.name}`}
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" />
+                                  <span>+ Credit Invoice</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 4 Financial Metric Highlights for this specific supplier */}
+                            <div className="p-4 sm:p-5 grid grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50/50 border-b border-slate-100">
+                              <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                                  Total Incurred Credit
+                                </span>
+                                <div className="text-base font-extrabold text-indigo-700 font-mono">
+                                  {supTotalCredit > 0 ? supTotalCredit.toLocaleString('en-US') : (supBalance > 0 ? supBalance.toLocaleString('en-US') : '0')} ETB
+                                </div>
+                                <span className="text-[10px] text-slate-500">{supCreditTxs.length} credit invoices</span>
+                              </div>
+
+                              <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                                  Total Settled Payments
+                                </span>
+                                <div className="text-base font-extrabold text-emerald-700 font-mono">
+                                  {supTotalPaid.toLocaleString('en-US')} ETB
+                                </div>
+                                <span className="text-[10px] text-emerald-600">{supPaymentTxs.length} payments paid</span>
+                              </div>
+
+                              <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                                  Current Balance Due
+                                </span>
+                                <div className={`text-base font-extrabold font-mono ${supBalance > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                                  {supBalance.toLocaleString('en-US')} ETB
+                                </div>
+                                <span className={`text-[10px] font-medium ${supBalance > 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                                  {supBalance > 0 ? 'Remaining to settle' : 'All debts settled'}
+                                </span>
+                              </div>
+
+                              <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                                  Overdue Credit Balance
+                                </span>
+                                <div className={`text-base font-extrabold font-mono ${supOverdueAmount > 0 ? 'text-red-700' : 'text-slate-600'}`}>
+                                  {supOverdueAmount.toLocaleString('en-US')} ETB
+                                </div>
+                                <span className={`text-[10px] font-medium ${supOverdueAmount > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                  {supOverdueTxs.length} overdue invoices
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Specific Credit Invoices Breakdown Table */}
+                            <div className="p-4 sm:p-5">
+                              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2.5 flex items-center justify-between">
+                                <span>Specific Credit Invoices &amp; Maturity for {sup.name}</span>
+                                <span className="text-[11px] font-normal text-slate-500">
+                                  Showing all specific credit bills on record
+                                </span>
+                              </h4>
+
+                              {supCreditTxs.length === 0 ? (
+                                <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                                  No credit invoices logged yet for this supplier. Record a credit purchase to begin tracking.
+                                </div>
+                              ) : (
+                                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                                  <table className="min-w-full text-left text-xs divide-y divide-slate-100">
+                                    <thead className="bg-slate-50 font-bold text-slate-600">
+                                      <tr>
+                                        <th className="p-2.5">Invoice / Ref #</th>
+                                        <th className="p-2.5">Invoice Date</th>
+                                        <th className="p-2.5">Due Date &amp; Maturity</th>
+                                        <th className="p-2.5 text-right">Original Amount</th>
+                                        <th className="p-2.5 text-right">Paid Amount</th>
+                                        <th className="p-2.5 text-right">Balance Due</th>
+                                        <th className="p-2.5 text-center">Status</th>
+                                        <th className="p-2.5 text-center">Actions</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                                      {supCreditTxs.map(tx => {
+                                        const remaining = (Number(tx.amount) || 0) - (Number(tx.paidAmount) || 0);
+                                        const isPaid = tx.paymentStatus === 'Paid' || remaining <= 0;
+                                        const isOverdue = !isPaid && tx.dueDate && tx.dueDate < todayStr;
+                                        const isDueToday = !isPaid && tx.dueDate === todayStr;
+
+                                        return (
+                                          <tr
+                                            key={tx.id}
+                                            className={`hover:bg-slate-50/80 transition-colors ${isOverdue ? 'bg-rose-50/30' : ''}`}
+                                          >
+                                            <td className="p-2.5 font-mono font-bold text-slate-900">
+                                              {tx.reference || tx.id}
+                                            </td>
+                                            <td className="p-2.5 text-slate-600 font-mono">
+                                              {tx.date || 'N/A'}
+                                            </td>
+                                            <td className="p-2.5 font-mono">
+                                              {tx.dueDate ? (
+                                                <div className="flex items-center gap-1.5">
+                                                  <span>{tx.dueDate}</span>
+                                                  {isOverdue && (
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-600 text-white">
+                                                      OVERDUE
+                                                    </span>
+                                                  )}
+                                                  {isDueToday && (
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                                                      DUE TODAY
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              ) : (
+                                                <span className="text-slate-400">Open Credit</span>
+                                              )}
+                                            </td>
+                                            <td className="p-2.5 text-right font-mono font-medium text-slate-800">
+                                              {(Number(tx.amount) || 0).toLocaleString('en-US')} ETB
+                                            </td>
+                                            <td className="p-2.5 text-right font-mono text-emerald-700 font-medium">
+                                              {(Number(tx.paidAmount) || 0).toLocaleString('en-US')} ETB
+                                            </td>
+                                            <td className={`p-2.5 text-right font-mono font-bold ${remaining > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                                              {remaining.toLocaleString('en-US')} ETB
+                                            </td>
+                                            <td className="p-2.5 text-center">
+                                              {isPaid ? (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                                  PAID
+                                                </span>
+                                              ) : isOverdue ? (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800">
+                                                  OVERDUE
+                                                </span>
+                                              ) : (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
+                                                  PENDING
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="p-2.5 text-center">
+                                              <div className="flex items-center justify-center gap-1.5">
+                                                {!isPaid && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setPaymentForm({
+                                                        supplierId: sup.id,
+                                                        amount: remaining,
+                                                        reference: `PAY-INV-${(tx.reference || tx.id).slice(-6)}`,
+                                                        notes: `Payment for credit invoice ${tx.reference || tx.id}`,
+                                                        date: new Date().toISOString().split('T')[0],
+                                                        creditTransactionId: tx.id,
+                                                        recipientName: '',
+                                                        receiptAttachment: '',
+                                                        receiptFileName: ''
+                                                      });
+                                                      setShowPaymentModal(true);
+                                                    }}
+                                                    className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer"
+                                                    title={`Pay remaining ${remaining} ETB for this invoice`}
+                                                  >
+                                                    Pay Bill
+                                                  </button>
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleTogglePaid(tx.id)}
+                                                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                                    tx.paymentStatus === 'Paid'
+                                                      ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                                                  }`}
+                                                >
+                                                  {tx.paymentStatus === 'Paid' ? 'Mark Unpaid' : 'Mark Paid'}
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             ) : (() => {
               const selectedSupplierObj = suppliers.find(s => s.id === selectedAnalysisSupplierId);
@@ -2536,15 +3397,20 @@ export function PurchaseManagerPanel({
                       placeholder="Qty"
                     />
                     <input
-                      type="number"
-                      min="1"
+                      type="text"
+                      inputMode="decimal"
                       value={line.unitPrice}
-                      onChange={(e) => updateLine(idx, 'unitPrice', Number(e.target.value))}
-                      className="w-20 bg-white border p-1 text-center rounded"
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          updateLine(idx, 'unitPrice', val);
+                        }
+                      }}
+                      className="w-20 bg-white border p-1 text-center rounded font-mono"
                       placeholder="Cost"
                     />
                     <span className="font-mono font-bold text-gray-900 w-16 text-right">
-                      {line.quantity * line.unitPrice} ETB
+                      {((Number(line.quantity) || 0) * (parseFloat(String(line.unitPrice)) || 0)).toFixed(2)} ETB
                     </span>
                     <button type="button" onClick={() => removeLine(idx)} className="text-red-500 font-bold">Delete</button>
                   </div>
@@ -2737,10 +3603,16 @@ export function PurchaseManagerPanel({
               <div className="space-y-1">
                 <label className="font-semibold text-gray-700 block">Opening Outstanding Credit Balance (ETB)</label>
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
                   value={newSup.balance}
-                  onChange={(e) => setNewSup({ ...newSup, balance: Number(e.target.value) })}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(',', '.');
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setNewSup({ ...newSup, balance: val });
+                    }
+                  }}
                   className="w-full bg-white border p-2 rounded outline-none font-mono"
                 />
               </div>
@@ -2807,10 +3679,16 @@ export function PurchaseManagerPanel({
               <div className="space-y-1">
                 <label className="font-semibold text-gray-700 block">Outstanding Credit Balance (ETB)</label>
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
                   value={editingSupplier.balance}
-                  onChange={(e) => setEditingSupplier({ ...editingSupplier, balance: Number(e.target.value) })}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(',', '.');
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setEditingSupplier({ ...editingSupplier, balance: val as any });
+                    }
+                  }}
                   className="w-full bg-white border p-2 rounded outline-none font-mono"
                 />
               </div>
@@ -2942,12 +3820,17 @@ export function PurchaseManagerPanel({
                   <div>
                     <label className="font-semibold text-gray-700 block mb-1">Amount Paid (ETB)</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       required
-                      min="1"
-                      placeholder="e.g. 15000"
+                      placeholder="e.g. 15000.50"
                       value={paymentForm.amount || ''}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setPaymentForm({ ...paymentForm, amount: val });
+                        }
+                      }}
                       className="w-full bg-white border p-2 rounded outline-none font-mono"
                     />
                   </div>
@@ -2962,6 +3845,93 @@ export function PurchaseManagerPanel({
                     className="w-full bg-white border p-2 rounded outline-none font-mono"
                   />
                 </div>
+
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">
+                    Payment Recipient / Collector Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Mr. Abebe (Supplier Agent) / Bank Acc Title"
+                    value={paymentForm.recipientName}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, recipientName: e.target.value })}
+                    className="w-full bg-white border p-2 rounded outline-none"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-gray-700 block">
+                      Attach Payment Receipt Proof / Voucher (Optional)
+                    </label>
+                    {paymentForm.receiptAttachment && (
+                      <button
+                        type="button"
+                        onClick={() => setPaymentForm({ ...paymentForm, receiptAttachment: '', receiptFileName: '' })}
+                        className="text-[10px] text-rose-600 hover:text-rose-800 font-bold"
+                      >
+                        Remove Attachment
+                      </button>
+                    )}
+                  </div>
+                  {!paymentForm.receiptAttachment ? (
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleReceiptFile(file, 'payment');
+                      }}
+                      onClick={() => paymentFileInputRef.current?.click()}
+                      className="border-2 border-dashed border-gray-300 hover:border-emerald-500 rounded-lg p-3 text-center cursor-pointer bg-gray-50 hover:bg-emerald-50/40 transition group"
+                    >
+                      <input
+                        ref={paymentFileInputRef}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleReceiptFile(file, 'payment');
+                        }}
+                      />
+                      <Upload className="h-5 w-5 mx-auto text-gray-400 group-hover:text-emerald-600 mb-1 transition" />
+                      <div className="text-[11px] font-semibold text-gray-700">Click to upload receipt or drag &amp; drop</div>
+                      <div className="text-[9px] text-gray-400">PNG, JPG, WEBP, or PDF proof (up to 5MB)</div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 p-2 bg-emerald-50/60 border border-emerald-200 rounded-lg">
+                      {paymentForm.receiptAttachment.startsWith('data:image/') ? (
+                        <img
+                          src={paymentForm.receiptAttachment}
+                          alt="Receipt proof preview"
+                          referrerPolicy="no-referrer"
+                          className="h-10 w-10 object-cover rounded border border-emerald-300"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 rounded bg-emerald-200 text-emerald-800 flex items-center justify-center font-bold text-xs">
+                          PDF
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-bold text-emerald-900 truncate">
+                          {paymentForm.receiptFileName || 'receipt_attachment'}
+                        </div>
+                        <div className="text-[9px] text-emerald-700 font-medium">Receipt proof ready to submit</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentForm({ ...paymentForm, receiptAttachment: '', receiptFileName: '' })}
+                        className="p-1 text-gray-400 hover:text-rose-600 rounded"
+                        title="Remove attached receipt"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label className="font-semibold text-gray-700 block mb-1">Internal Ledger Notes</label>
                   <textarea
@@ -2983,6 +3953,268 @@ export function PurchaseManagerPanel({
           </div>
         );
       })()}
+
+      {/* VIEW RECEIPT ATTACHMENT MODAL */}
+      {selectedReceiptTx && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-slate-800">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5 border border-gray-150 text-xs flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b pb-3 mb-3">
+              <div className="flex items-center gap-2">
+                <Receipt className="h-5 w-5 text-emerald-600" />
+                <h3 className="text-sm font-bold text-gray-900">Payment Receipt Voucher Proof</h3>
+              </div>
+              <button
+                onClick={() => setSelectedReceiptTx(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 grid grid-cols-2 gap-2 text-[11px]">
+                <div>
+                  <span className="text-gray-400 block text-[9px] uppercase font-bold">Supplier</span>
+                  <span className="font-semibold text-gray-900">
+                    {suppliers.find(s => s.id === selectedReceiptTx.supplierId)?.name || 'Supplier'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] uppercase font-bold">Amount</span>
+                  <span className="font-mono font-bold text-emerald-600">
+                    {selectedReceiptTx.amount.toLocaleString('en-US')} ETB
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] uppercase font-bold">Date</span>
+                  <span className="font-mono text-gray-700">{selectedReceiptTx.date}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] uppercase font-bold">Reference</span>
+                  <span className="font-mono text-gray-700">{selectedReceiptTx.reference || selectedReceiptTx.id}</span>
+                </div>
+                {selectedReceiptTx.recipientName && (
+                  <div className="col-span-2 bg-indigo-50 p-2 rounded border border-indigo-100 flex items-center gap-1.5">
+                    <Users className="h-3.5 w-3.5 text-indigo-700 flex-shrink-0" />
+                    <div>
+                      <span className="text-[9px] text-indigo-600 font-bold uppercase block">Payment Recipient / Collector</span>
+                      <span className="font-semibold text-indigo-950 text-[11px]">{selectedReceiptTx.recipientName}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {selectedReceiptTx.receiptAttachment ? (
+                <div className="border rounded-lg p-2 bg-slate-900/5 flex flex-col items-center justify-center">
+                  {selectedReceiptTx.receiptAttachment.startsWith('data:image/') || selectedReceiptTx.receiptAttachment.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                    <img
+                      src={selectedReceiptTx.receiptAttachment}
+                      alt="Receipt Voucher"
+                      referrerPolicy="no-referrer"
+                      className="max-h-[50vh] w-auto max-w-full rounded object-contain shadow-sm border bg-white"
+                    />
+                  ) : (
+                    <div className="w-full h-64 bg-white rounded border flex flex-col items-center justify-center p-4 text-center">
+                      <FileText className="h-12 w-12 text-slate-400 mb-2" />
+                      <div className="font-semibold text-slate-700 text-xs mb-1">
+                        {selectedReceiptTx.receiptFileName || 'Document Voucher (PDF)'}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mb-3">PDF Receipt Document Attached</div>
+                      <a
+                        href={selectedReceiptTx.receiptAttachment}
+                        download={selectedReceiptTx.receiptFileName || 'receipt_document.pdf'}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded font-bold text-xs inline-flex items-center gap-1 hover:bg-emerald-700"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download Document
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center p-6 text-gray-400 italic">
+                  No visual file attached to this transaction.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t mt-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const tx = selectedReceiptTx;
+                  setSelectedReceiptTx(null);
+                  setAttachingReceiptTx(tx);
+                  setAttachRecipientInput(tx.recipientName || '');
+                  setAttachFileUrl(tx.receiptAttachment || '');
+                  setAttachFileName(tx.receiptFileName || '');
+                }}
+                className="px-3 py-1.5 text-xs text-sky-700 hover:text-sky-900 hover:bg-sky-50 rounded border border-sky-200 font-semibold inline-flex items-center gap-1"
+              >
+                <Edit className="h-3 w-3" />
+                Update Proof / Recipient
+              </button>
+
+              <div className="flex items-center gap-2">
+                {selectedReceiptTx.receiptAttachment && (
+                  <a
+                    href={selectedReceiptTx.receiptAttachment}
+                    download={selectedReceiptTx.receiptFileName || `receipt_${selectedReceiptTx.id}.png`}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-xs inline-flex items-center gap-1"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedReceiptTx(null)}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-semibold text-xs"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ATTACH / UPDATE RECEIPT MODAL */}
+      {attachingReceiptTx && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-slate-800">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 border border-gray-150 text-xs">
+            <div className="flex items-center justify-between border-b pb-3 mb-3">
+              <div className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-emerald-600" />
+                <h3 className="text-sm font-bold text-gray-900">Attach Payment Recipient &amp; Receipt</h3>
+              </div>
+              <button
+                onClick={() => setAttachingReceiptTx(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveReceiptAttachment} className="space-y-3">
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px] leading-relaxed">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Transaction:</span>
+                  <span className="font-mono font-bold text-gray-800">{attachingReceiptTx.reference || attachingReceiptTx.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Amount:</span>
+                  <span className="font-mono font-bold text-emerald-600">{attachingReceiptTx.amount.toLocaleString('en-US')} ETB</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">
+                  Payment Recipient / Collector Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Mr. Abebe (Supplier Agent) / Bank Title"
+                  value={attachRecipientInput}
+                  onChange={(e) => setAttachRecipientInput(e.target.value)}
+                  className="w-full bg-white border p-2 rounded outline-none"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-gray-700 block">
+                    Upload Receipt Voucher Proof (Optional)
+                  </label>
+                  {(attachFileUrl || attachingReceiptTx.receiptAttachment) && (
+                    <button
+                      type="button"
+                      onClick={() => { setAttachFileUrl(''); setAttachFileName(''); }}
+                      className="text-[10px] text-rose-600 hover:text-rose-800 font-bold"
+                    >
+                      Clear File
+                    </button>
+                  )}
+                </div>
+
+                {!(attachFileUrl || attachingReceiptTx.receiptAttachment) ? (
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleReceiptFile(file, 'direct');
+                    }}
+                    onClick={() => attachFileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 hover:border-emerald-500 rounded-lg p-3 text-center cursor-pointer bg-gray-50 hover:bg-emerald-50/40 transition group"
+                  >
+                    <input
+                      ref={attachFileInputRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleReceiptFile(file, 'direct');
+                      }}
+                    />
+                    <Upload className="h-5 w-5 mx-auto text-gray-400 group-hover:text-emerald-600 mb-1 transition" />
+                    <div className="text-[11px] font-semibold text-gray-700">Click to upload or drag &amp; drop</div>
+                    <div className="text-[9px] text-gray-400">PNG, JPG, WEBP, or PDF (Max 5MB)</div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 p-2 bg-emerald-50/60 border border-emerald-200 rounded-lg">
+                    {(attachFileUrl || attachingReceiptTx.receiptAttachment || '').startsWith('data:image/') ? (
+                      <img
+                        src={attachFileUrl || attachingReceiptTx.receiptAttachment}
+                        alt="Receipt preview"
+                        referrerPolicy="no-referrer"
+                        className="h-10 w-10 object-cover rounded border border-emerald-300"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded bg-emerald-200 text-emerald-800 flex items-center justify-center font-bold text-xs">
+                        PDF
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-bold text-emerald-900 truncate">
+                        {attachFileName || attachingReceiptTx.receiptFileName || 'receipt_file'}
+                      </div>
+                      <div className="text-[9px] text-emerald-700 font-medium">Attached proof</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setAttachFileUrl(''); setAttachFileName(''); }}
+                      className="p-1 text-gray-400 hover:text-rose-600 rounded"
+                      title="Remove file"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setAttachingReceiptTx(null)}
+                  className="bg-white border py-2 px-3 rounded text-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingReceipt}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                >
+                  {savingReceipt ? 'Saving...' : 'Save Details'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* RECORD SUPPLIER CREDIT (BILL) MODAL */}
       {showCreditModal && (
@@ -3053,12 +4285,17 @@ export function PurchaseManagerPanel({
                 <div>
                   <label className="font-semibold text-gray-700 block mb-1">Invoice Amount (ETB)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     required
-                    min="1"
-                    placeholder="e.g. 50000"
+                    placeholder="e.g. 50000.75"
                     value={creditForm.amount || ''}
-                    onChange={(e) => setCreditForm({ ...creditForm, amount: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setCreditForm({ ...creditForm, amount: val });
+                      }
+                    }}
                     className="w-full bg-white border p-2 rounded outline-none font-mono"
                   />
                 </div>
@@ -3093,6 +4330,20 @@ export function PurchaseManagerPanel({
           </div>
         </div>
       )}
+
+      {/* Smart Inventory & Invoice OCR Scanner Modal */}
+      <ScanItemsModal
+        isOpen={showScanInvoiceModal}
+        onClose={() => setShowScanInvoiceModal(false)}
+        currentUser={currentUser}
+        branches={branches}
+        activeBranchId={activeBranchId}
+        suppliers={suppliers}
+        initialMode="invoice"
+        onImportComplete={() => {
+          onDataChanged();
+        }}
+      />
     </div>
   );
 }
@@ -3787,10 +5038,16 @@ export function CustomerManagerPanel({ currentUser, customers, sales = [], onDat
                 <div className="space-y-1">
                   <label className="font-semibold text-gray-700 dark:text-slate-300 block">Credit Limit Cap (ETB)</label>
                   <input
-                    type="number"
-                    min="500"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
                     value={newCust.creditLimit}
-                    onChange={(e) => setNewCust({ ...newCust, creditLimit: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setNewCust({ ...newCust, creditLimit: val as any });
+                      }
+                    }}
                     className="w-full bg-white dark:bg-slate-800 border p-2 rounded outline-none font-mono dark:text-white"
                   />
                 </div>
@@ -3857,7 +5114,7 @@ export function FinancialManagerPanel({
   const [showModal, setShowModal] = useState(false);
   const [branchId, setBranchId] = useState('b1');
   const [category, setCategory] = useState('Utilities');
-  const [amount, setAmount] = useState(1000);
+  const [amount, setAmount] = useState<number | string>(1000);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -4437,7 +5694,8 @@ export function FinancialManagerPanel({
 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || amount <= 0) {
+    const expAmount = parseFloat(String(amount)) || 0;
+    if (!description || expAmount <= 0) {
       alert('Validation Error: Expense description and a valid positive amount is required.');
       return;
     }
@@ -4450,7 +5708,7 @@ export function FinancialManagerPanel({
         body: JSON.stringify({
           branchId,
           category,
-          amount,
+          amount: expAmount,
           description,
           operatorId: currentUser?.id
         })
@@ -5833,10 +7091,16 @@ export function FinancialManagerPanel({
               <div className="space-y-1">
                 <label className="font-semibold text-gray-700 block">Expense Value (ETB)</label>
                 <input
-                  type="number"
-                  min="1"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
                   value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(',', '.');
+                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                      setAmount(val);
+                    }
+                  }}
                   className="w-full bg-white border p-2 rounded outline-none font-mono"
                 />
               </div>
@@ -9211,11 +10475,16 @@ Automated Quality Control Monitor.
                     <div className="space-y-1">
                       <label className="font-semibold text-gray-700 block text-[11px]">Special Popup Price (ETB)</label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={newPopupPrice}
-                        onChange={(e) => setNewPopupPrice(e.target.value)}
-                        placeholder="e.g. 144"
+                        onChange={(e) => {
+                          const val = e.target.value.replace(',', '.');
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setNewPopupPrice(val);
+                          }
+                        }}
+                        placeholder="e.g. 144.50"
                         className="w-full bg-white border border-gray-300 p-2 rounded outline-none text-xs font-bold text-emerald-700 focus:border-amber-600"
                       />
                     </div>
@@ -9223,11 +10492,16 @@ Automated Quality Control Monitor.
                     <div className="space-y-1">
                       <label className="font-semibold text-gray-700 block text-[11px]">Original Price Strikethrough (ETB)</label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={newPopupOrigPrice}
-                        onChange={(e) => setNewPopupOrigPrice(e.target.value)}
-                        placeholder="e.g. 180"
+                        onChange={(e) => {
+                          const val = e.target.value.replace(',', '.');
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setNewPopupOrigPrice(val);
+                          }
+                        }}
+                        placeholder="e.g. 180.00"
                         className="w-full bg-white border border-gray-300 p-2 rounded outline-none text-xs focus:border-amber-600"
                       />
                     </div>
@@ -10502,7 +11776,7 @@ export function ExpenseRegistryPanel({ currentUser, branches, expenses, onDataCh
   const [showModal, setShowModal] = useState(false);
   const [branchId, setBranchId] = useState('b1');
   const [category, setCategory] = useState('Utilities');
-  const [amount, setAmount] = useState(1000);
+  const [amount, setAmount] = useState<number | string>(1000);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -10512,7 +11786,8 @@ export function ExpenseRegistryPanel({ currentUser, branches, expenses, onDataCh
 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || amount <= 0) {
+    const expAmount = parseFloat(String(amount)) || 0;
+    if (!description || expAmount <= 0) {
       alert('Validation Error: Expense description and a valid positive amount is required.');
       return;
     }
@@ -10525,7 +11800,7 @@ export function ExpenseRegistryPanel({ currentUser, branches, expenses, onDataCh
         body: JSON.stringify({
           branchId,
           category,
-          amount,
+          amount: expAmount,
           description,
           operatorId: currentUser?.id
         })
@@ -10555,23 +11830,67 @@ export function ExpenseRegistryPanel({ currentUser, branches, expenses, onDataCh
 
   const totalFilteredExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
 
+  const exportExpensesToExcel = () => {
+    let csvContent = "\uFEFF"; // UTF-8 BOM for direct Microsoft Excel compatibility
+    csvContent += "Operational Expenses Registry & Audit Ledger\r\n";
+    csvContent += `Generated On: ${new Date().toLocaleString()},Scope: ${branchFilter === 'all' ? 'All Branches' : (branches.find(b => b.id === branchFilter)?.name || branchFilter)},Category: ${categoryFilter}\r\n\r\n`;
+    csvContent += "Expense ID,Branch Location,Posting Date,Overhead Category,Audit Description,Debit Amount (ETB),Operator / Auditor\r\n";
+
+    filteredExpenses.forEach(exp => {
+      const bName = exp.branchName || branches.find(b => b.id === exp.branchId)?.name || exp.branchId || 'Main Branch';
+      const row = [
+        `"${exp.id}"`,
+        `"${bName.replace(/"/g, '""')}"`,
+        `"${exp.date || ''}"`,
+        `"${(exp.category || '').replace(/"/g, '""')}"`,
+        `"${(exp.description || '').replace(/"/g, '""')}"`,
+        exp.amount,
+        `"${((exp.recordedBy || exp.operator || currentUser?.username || 'admin') as string).replace(/"/g, '""')}"`
+      ].join(",");
+      csvContent += row + "\r\n";
+    });
+
+    csvContent += `\r\n,,,Total Filtered Expenses,${totalFilteredExpenses} ETB\r\n`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `operational_expenses_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
           <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
             <Receipt className="h-5 w-5 text-emerald-600" />
-            Operational Expense Registry & Ledger
+            Operational Expense Registry &amp; Ledger
           </h3>
           <p className="text-xs text-gray-500">Log branch operational expenditures, utilities, rent, salaries, and maintain direct audits.</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 px-4 rounded shadow flex items-center gap-1"
-        >
-          <Plus className="h-4 w-4" />
-          Log Operational Expense
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={exportExpensesToExcel}
+            className="bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 text-xs font-bold py-2 px-3.5 rounded shadow-sm flex items-center gap-1.5 transition cursor-pointer"
+            title="Export Expense Register to Excel (CSV)"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
+            Export to Excel
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 px-4 rounded shadow flex items-center gap-1 cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            Log Operational Expense
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -10730,9 +12049,11 @@ export function ExpenseRegistryPanel({ currentUser, branches, expenses, onDataCh
                 <input
                   type="number"
                   required
-                  min="1"
+                  min="0.01"
+                  step="any"
+                  placeholder="0.00"
                   value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
+                  onChange={(e) => setAmount(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded p-2.5 outline-none text-gray-800 font-mono font-semibold"
                 />
               </div>

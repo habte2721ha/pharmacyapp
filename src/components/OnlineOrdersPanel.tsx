@@ -25,7 +25,7 @@ export default function OnlineOrdersPanel({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<OnlineOrder | null>(null);
-  const [quotePriceInput, setQuotePriceInput] = useState<number>(0);
+  const [quotePriceInput, setQuotePriceInput] = useState<string>('');
   const [adminNotesInput, setAdminNotesInput] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -35,7 +35,7 @@ export default function OnlineOrdersPanel({
   // Sync inputs when selected order changes
   useEffect(() => {
     if (selectedOrder) {
-      setQuotePriceInput(selectedOrder.quotedPrice || selectedOrder.totalAmount || 0);
+      setQuotePriceInput(selectedOrder.quotedPrice ? String(selectedOrder.quotedPrice) : (selectedOrder.totalAmount ? String(selectedOrder.totalAmount) : ''));
       setAdminNotesInput(selectedOrder.adminNotes || '');
     }
   }, [selectedOrder]);
@@ -246,7 +246,8 @@ export default function OnlineOrdersPanel({
 
   // Send Price Quote Response
   const handleSendPriceQuote = async (orderId: string) => {
-    if (quotePriceInput <= 0) {
+    const numericPrice = parseFloat(quotePriceInput) || 0;
+    if (numericPrice <= 0) {
       alert('Please enter a valid quoted price in ETB.');
       return;
     }
@@ -257,8 +258,8 @@ export default function OnlineOrdersPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: 'Quote Sent',
-          quotedPrice: quotePriceInput,
-          totalAmount: quotePriceInput,
+          quotedPrice: numericPrice,
+          totalAmount: numericPrice,
           adminNotes: adminNotesInput.trim(),
           operatorId: currentUser?.id
         })
@@ -268,7 +269,7 @@ export default function OnlineOrdersPanel({
         const updated = await res.json();
         setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
         setSelectedOrder(updated);
-        alert(`Price quote of ${quotePriceInput} ETB recorded! You can now send the quote to the customer via WhatsApp, Telegram, or Call.`);
+        alert(`Price quote of ${numericPrice} ETB recorded! You can now send the quote to the customer via WhatsApp, Telegram, or Call.`);
       } else {
         alert('Failed to send price quote.');
       }
@@ -696,11 +697,16 @@ export default function OnlineOrdersPanel({
                         Quoted Total Price (ETB) *
                       </label>
                       <input
-                        type="number"
-                        min="0"
-                        placeholder="e.g. 250"
-                        value={quotePriceInput || ''}
-                        onChange={(e) => setQuotePriceInput(Number(e.target.value))}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="e.g. 250.50"
+                        value={quotePriceInput}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(',', '.');
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setQuotePriceInput(val);
+                          }
+                        }}
                         className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500"
                       />
                     </div>
@@ -721,7 +727,7 @@ export default function OnlineOrdersPanel({
 
                   <button
                     type="button"
-                    disabled={actionLoading || !quotePriceInput || quotePriceInput <= 0}
+                    disabled={actionLoading || !quotePriceInput || (parseFloat(quotePriceInput) || 0) <= 0}
                     onClick={() => handleSendPriceQuote(selectedOrder.id)}
                     className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow transition flex items-center justify-center space-x-2"
                   >

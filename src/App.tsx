@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Building, LogOut, Shield, Database, LayoutDashboard, 
   ShoppingCart, Package, ArrowRightLeft, FileCheck, Users, 
@@ -31,6 +31,7 @@ import { AutoBackupManager } from './components/AutoBackupManager.tsx';
 import CategoryManagerPanel from './components/CategoryManagerPanel.tsx';
 import PayrollManagerPanel from './components/PayrollManagerPanel.tsx';
 import StaffAttendancePanel from './components/StaffAttendancePanel.tsx';
+import { OutboundCreditNotificationPanel } from './components/OutboundCreditNotificationPanel.tsx';
 
 import { 
   StockTransferPanel, PurchaseManagerPanel, CustomerManagerPanel, 
@@ -101,7 +102,7 @@ export default function App() {
     return null;
   });
 
-  const currentUserRef = React.useRef<UserType | null>(currentUser);
+  const currentUserRef = useRef<UserType | null>(currentUser);
   useEffect(() => {
     currentUserRef.current = currentUser;
     if (currentUser) {
@@ -124,6 +125,8 @@ export default function App() {
   const [deviceOtpId, setDeviceOtpId] = useState('');
   const [deviceOtpCode, setDeviceOtpCode] = useState('');
   const [deviceOtpError, setDeviceOtpError] = useState('');
+  const [deviceRestricted, setDeviceRestricted] = useState(false);
+  const [otpAttemptsRemaining, setOtpAttemptsRemaining] = useState<number>(3);
   const [otpSentTo, setOtpSentTo] = useState<{ email: string; phone: string } | null>(null);
   const [showRevealedOtpInModal, setShowRevealedOtpInModal] = useState(false);
   const [fetchedPendingOtp, setFetchedPendingOtp] = useState<string | null>(null);
@@ -164,7 +167,7 @@ export default function App() {
   });
 
   // Dedicated safe navigation handler to guarantee instant persistence and atomic tab transitions
-  const handleTabChange = React.useCallback((nextTab: string) => {
+  const handleTabChange = useCallback((nextTab: string) => {
     if (!nextTab) return;
     setActiveTab(nextTab);
     try {
@@ -208,13 +211,41 @@ export default function App() {
   const [callRingingSeconds, setCallRingingSeconds] = useState<number>(0);
   const [isCallRingingMuted, setIsCallRingingMuted] = useState<boolean>(false);
   const [copiedCallerPhone, setCopiedCallerPhone] = useState<boolean>(false);
-  const seenTeleIdsRef = React.useRef<Set<string>>(new Set());
+  const seenTeleIdsRef = useRef<Set<string>>(new Set());
 
   // Share Customer Store Link Modal state in App
   const [showAppShareModal, setShowAppShareModal] = useState(false);
   const [appCopiedLink, setAppCopiedLink] = useState(false);
   const [appQrUrl, setAppQrUrl] = useState('');
   const [appShareBranch, setAppShareBranch] = useState('all');
+
+  // Dedicated Outbound Supplier Credit Notification Panel & Alert state
+  const [showOutboundCreditPanel, setShowOutboundCreditPanel] = useState<boolean>(false);
+  const [outboundCreditSummary, setOutboundCreditSummary] = useState<{
+    totalOutboundCredit: number;
+    totalOverdue: number;
+    totalDueSoon: number;
+    totalActiveInvoices: number;
+    overdueInvoicesCount: number;
+  }>({ totalOutboundCredit: 0, totalOverdue: 0, totalDueSoon: 0, totalActiveInvoices: 0, overdueInvoicesCount: 0 });
+
+  const fetchOutboundCreditSummary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/suppliers/outbound-credit-summary');
+      if (res.ok) {
+        const data = await res.json();
+        setOutboundCreditSummary({
+          totalOutboundCredit: Number(data.totalOutboundCredit) || 0,
+          totalOverdue: Number(data.totalOverdue) || 0,
+          totalDueSoon: Number(data.totalDueSoon) || 0,
+          totalActiveInvoices: Number(data.totalActiveInvoices) || 0,
+          overdueInvoicesCount: Number(data.overdueInvoicesCount) || 0
+        });
+      }
+    } catch (e) {
+      // Swallowed on network glitches
+    }
+  }, []);
 
   const getAppStoreUrl = (branchId?: string) => {
     const targetBranch = branchId || appShareBranch;
@@ -336,7 +367,7 @@ export default function App() {
   };
 
   // Ref to track user account identity and prevent background syncs from resetting navigation
-  const lastAuthenticatedUserIdRef = React.useRef<string | null>(currentUser?.id || null);
+  const lastAuthenticatedUserIdRef = useRef<string | null>(currentUser?.id || null);
 
   // Validate activeTab access ONLY when a distinct user logs in or switches accounts
   useEffect(() => {
@@ -726,6 +757,9 @@ export default function App() {
         if (Array.isArray(data.categories) && data.categories.length > 0 && (!onlyIfEmpty || categories.length === 0)) setCategories(data.categories);
         if (Array.isArray(data.auditLogs) && (!onlyIfEmpty || auditLogs.length === 0)) setAuditLogs(data.auditLogs);
         if (Array.isArray(data.pharmacyNotes) && (!onlyIfEmpty || pharmacyNotes.length === 0)) setPharmacyNotes(data.pharmacyNotes);
+        if (parsed.lastUpdated) {
+          lastKnownDbVersionRef.current = Math.max(lastKnownDbVersionRef.current, Number(parsed.lastUpdated));
+        }
         console.log('[Offline Support] Loaded validated database state from local cache.');
       }
     } catch (e) {
@@ -807,14 +841,15 @@ export default function App() {
     }
     setIsBackendConnected(true);
     setLoadingDb(false);
+    fetchOutboundCreditSummary();
   };
 
   // Concurrency Lock & Single-Flight Coalescing References for data synchronization
-  const isSyncLockedRef = React.useRef<boolean>(false);
-  const inFlightSyncPromiseRef = React.useRef<Promise<boolean> | null>(null);
-  const queuedSyncRequestRef = React.useRef<{ retries: number; silent: boolean } | null>(null);
-  const lastAllDataFetchTimeRef = React.useRef<number>(0);
-  const lastKnownDbVersionRef = React.useRef<number>(0);
+  const isSyncLockedRef = useRef<boolean>(false);
+  const inFlightSyncPromiseRef = useRef<Promise<boolean> | null>(null);
+  const queuedSyncRequestRef = useRef<{ retries: number; silent: boolean } | null>(null);
+  const lastAllDataFetchTimeRef = useRef<number>(0);
+  const lastKnownDbVersionRef = useRef<number>(0);
 
   // 1. Core State Sync Engine (With Concurrency Mutex Lock, Promise Coalescing & Trailing Execution)
   const refreshAllCollections = (retriesArg?: any, delay = 1000, silentArg?: any): Promise<boolean> => {
@@ -891,8 +926,8 @@ export default function App() {
           lastAllDataFetchTimeRef.current = Date.now();
           setIsBackendConnected(true);
 
-          // Asynchronously save complete fresh backup to localStorage in background idle time
-          setTimeout(() => {
+          // Asynchronously save complete fresh backup to localStorage in browser idle time
+          const persistIdle = () => {
             try {
               if (data && data.medicines && data.medicines.length > 0) {
                 safeLocalStorageSet('sonan_client_db_state', JSON.stringify(data));
@@ -900,7 +935,12 @@ export default function App() {
             } catch (e) {
               console.error('Non-critical background storage sync warning:', e);
             }
-          }, 50);
+          };
+          if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(persistIdle, { timeout: 3000 });
+          } else {
+            setTimeout(persistIdle, 250);
+          }
 
           applyAllData(data);
           if (!isSilent) {
@@ -942,7 +982,9 @@ export default function App() {
           setIsBackendConnected(false);
           setLoadingDb(false);
           if (!isSilent) {
-            setRefreshNotification({ show: true, message: 'Network offline. Using cached data.', isError: true });
+            const isTrulyOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+            const notificationMsg = isTrulyOffline ? 'Network offline. Using cached data.' : 'Server reconnecting. Using secure local cache.';
+            setRefreshNotification({ show: true, message: notificationMsg, isError: isTrulyOffline });
             setTimeout(() => {
               setRefreshNotification(prev => ({ ...prev, show: false }));
             }, 3500);
@@ -1000,30 +1042,8 @@ export default function App() {
     // Immediately fetch fresh authoritative live database state from server on app launch
     refreshAllCollections(3, 500, true);
 
-    // Revalidate on focus/visibility change with a fast 1.5-second throttle for instant device switching
-    const handleFocus = () => {
-      const now = Date.now();
-      if (now - lastAllDataFetchTimeRef.current > 1500) {
-        refreshAllCollections(2, 50, true);
-      }
-    };
-    window.addEventListener('focus', handleFocus);
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        const now = Date.now();
-        if (now - lastAllDataFetchTimeRef.current > 1500) {
-          refreshAllCollections(2, 50, true);
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    // Multi-Device Real-Time Synchronization Heartbeat:
-    // Periodically checks server database version (<100 bytes) and syncs changes seamlessly
-    let isCheckingVersion = false;
-    const heartbeatInterval = setInterval(async () => {
-      if (isCheckingVersion) return;
-      isCheckingVersion = true;
+    // Lightweight Revalidate-on-Focus: Check database version (<100B) instead of blindly refetching heavy collections
+    const checkServerVersionFast = async () => {
       try {
         const res = await fetch('/api/sync/version', {
           cache: 'no-store',
@@ -1034,21 +1054,47 @@ export default function App() {
           const info = await res.json();
           const serverVersion = Number(info.lastUpdated || 0);
           const localVersion = lastKnownDbVersionRef.current;
-          
-          // If server database version is newer than local version, trigger immediate background sync
           if (serverVersion > 0 && serverVersion > localVersion) {
             refreshAllCollections(2, 50, true);
           }
         }
       } catch (e) {
-        // Blip or offline: non-blocking
+        // Non-blocking
+      }
+    };
+
+    let lastFocusCheckTime = 0;
+    const handleFocusOrVisible = () => {
+      const now = Date.now();
+      if (now - lastFocusCheckTime > 20000) {
+        lastFocusCheckTime = now;
+        checkServerVersionFast();
+      }
+    };
+    window.addEventListener('focus', handleFocusOrVisible);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        handleFocusOrVisible();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Multi-Device Real-Time Synchronization Heartbeat:
+    // Periodically checks server database version (<100 bytes) every 10 seconds (non-disruptive)
+    let isCheckingVersion = false;
+    const heartbeatInterval = setInterval(async () => {
+      if (isCheckingVersion) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      isCheckingVersion = true;
+      try {
+        await checkServerVersionFast();
       } finally {
         isCheckingVersion = false;
       }
-    }, 3500);
+    }, 10000);
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', handleFocusOrVisible);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearInterval(heartbeatInterval);
     };
@@ -1154,7 +1200,7 @@ export default function App() {
   }, [incomingTeleAlertSession, isCallRingingMuted]);
 
   // Safely initialize active branch context on login without resetting activeTab
-  const initialBranchSetRef = React.useRef<boolean>(false);
+  const initialBranchSetRef = useRef<boolean>(false);
   useEffect(() => {
     if (currentUser && !initialBranchSetRef.current) {
       initialBranchSetRef.current = true;
@@ -1197,6 +1243,8 @@ export default function App() {
           setDeviceOtpUser(data.user);
           setDeviceOtpId(data.deviceId);
           setOtpSentTo(data.otpSentTo || null);
+          setDeviceRestricted(false);
+          setOtpAttemptsRemaining(data.attemptsRemaining || 3);
           setShowDeviceOtpModal(true);
         } else {
           if (data.initialData) {
@@ -1286,6 +1334,7 @@ export default function App() {
         setShowDeviceOtpModal(false);
         setDeviceOtpUser(null);
         setDeviceOtpCode('');
+        setDeviceRestricted(false);
         setTimeout(() => {
           if (data.initialData) {
             safeLocalStorageSet('sonan_client_db_state', JSON.stringify(data.initialData));
@@ -1293,7 +1342,13 @@ export default function App() {
         }, 300);
       } else {
         const err = await res.json();
-        setDeviceOtpError(err.error || 'Invalid OTP code.');
+        if (err.restricted) {
+          setDeviceRestricted(true);
+        }
+        if (typeof err.remainingAttempts === 'number') {
+          setOtpAttemptsRemaining(err.remainingAttempts);
+        }
+        setDeviceOtpError(err.error || 'Invalid OTP verification code.');
       }
     } catch (err) {
       setDeviceOtpError('REST timeout verifying OTP.');
@@ -1411,6 +1466,7 @@ export default function App() {
     if (!currentUser) return;
 
     let timeoutId: any;
+    let lastActivityReset = Date.now();
 
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
@@ -1420,9 +1476,17 @@ export default function App() {
       }, 60 * 60 * 1000); // 1 hour (60 minutes)
     };
 
+    const handleThrottledActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityReset > 30000) {
+        lastActivityReset = now;
+        resetTimer();
+      }
+    };
+
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
     events.forEach(event => {
-      window.addEventListener(event, resetTimer);
+      window.addEventListener(event, handleThrottledActivity, { passive: true });
     });
 
     resetTimer();
@@ -1430,7 +1494,7 @@ export default function App() {
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
       events.forEach(event => {
-        window.removeEventListener(event, resetTimer);
+        window.removeEventListener(event, handleThrottledActivity);
       });
     };
   }, [currentUser]);
@@ -1459,7 +1523,7 @@ export default function App() {
     };
   }, []);
 
-  const lowOrOutOfStockInventoryCount = React.useMemo(() => {
+  const lowOrOutOfStockInventoryCount = useMemo(() => {
     if (!medicines || medicines.length === 0) return 0;
     const effectiveBranchId = (currentUser && currentUser.role !== 'Super Administrator' && currentUser.role !== 'Auditor' && currentUser.role !== 'Accountant' && currentUser.branchId && currentUser.branchId !== 'all')
       ? currentUser.branchId
@@ -1654,128 +1718,161 @@ export default function App() {
           <div className="fixed inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-150 dark:border-slate-800 max-w-sm w-full p-6 text-xs text-gray-800 dark:text-slate-200 font-sans space-y-4 transition-all duration-200">
               <div className="text-center space-y-1">
-                <div className="bg-amber-50 dark:bg-amber-950/35 text-amber-700 dark:text-amber-400 p-2.5 rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-2 border border-amber-200 dark:border-amber-900/55">
-                  <Shield className="h-6 w-6 text-amber-500 animate-pulse" />
+                <div className={`p-2.5 rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-2 border ${
+                  deviceRestricted 
+                    ? 'bg-rose-50 dark:bg-rose-950/35 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/55'
+                    : 'bg-amber-50 dark:bg-amber-950/35 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/55'
+                }`}>
+                  <Shield className={`h-6 w-6 ${deviceRestricted ? 'text-rose-600 animate-pulse' : 'text-amber-500 animate-pulse'}`} />
                 </div>
                 <h3 className="text-sm font-sans font-extrabold text-gray-950 dark:text-white">
-                  {deviceOtpUser?.twoFactorEnabled ? 'Two-Factor Authentication' : 'New Device Detected'}
+                  {deviceRestricted ? 'Device Access Restricted' : (deviceOtpUser?.twoFactorEnabled ? 'Two-Factor Authentication' : 'New Device Authorization')}
                 </h3>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 max-w-xs leading-normal mx-auto">
-                  {deviceOtpUser?.twoFactorEnabled 
-                    ? 'A 6-digit Two-Factor (2FA) verification code has been dispatched to your contact coordinates.' 
-                    : 'For secure multi-device enterprise auditing, a 6-digit Device Authorization Code has been generated.'
+                  {deviceRestricted 
+                    ? 'This device has been restricted due to 3 failed verification attempts.'
+                    : 'A 6-digit Device Verification Code has been generated and sent to the Administrator in the Security Panel. Please contact your system administrator to approve access.'
                   }
                 </p>
 
-                {otpSentTo && (
-                  <div className="bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-[11px] text-emerald-800 dark:text-emerald-400 p-2.5 rounded-lg text-left space-y-1 mt-2">
-                    <div className="font-bold flex items-center gap-1 text-emerald-900 dark:text-emerald-300">
-                      <span>✓ Dispatched OTP Reports:</span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-0.5 font-mono text-[10px]">
-                      <div>📧 Email: <span className="font-semibold">{otpSentTo.email}</span></div>
-                      <div>📞 Phone: <span className="font-semibold">{otpSentTo.phone}</span></div>
-                    </div>
-                    <p className="text-[9px] text-emerald-600/90 dark:text-emerald-500/90 mt-1 italic">
-                      Check your inbox. Code is also logged in terminal & "System Alerts" console!
-                    </p>
+                {/* Status and attempt pill */}
+                {!deviceRestricted && (
+                  <div className="flex items-center justify-center gap-2 mt-1">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
+                      Attempts Remaining: {otpAttemptsRemaining} / 3
+                    </span>
                   </div>
                 )}
 
-                <div className="text-[10px] text-slate-500 bg-slate-50 dark:bg-slate-950 p-2 rounded-lg mt-2 font-mono">
+                <div className="text-[10px] text-slate-500 bg-slate-50 dark:bg-slate-950 p-2 rounded-lg mt-2 font-mono break-all">
                   Device ID: {deviceOtpId}
                 </div>
               </div>
 
-              {deviceOtpError && (
-                <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-red-800 dark:text-red-400 p-2.5 rounded-lg text-center font-semibold">
-                  {deviceOtpError}
-                </div>
-              )}
-
-              <form onSubmit={handleDeviceOtpVerify} className="space-y-3">
-                <input
-                  type="text"
-                  maxLength={6}
-                  required
-                  placeholder="------"
-                  value={deviceOtpCode}
-                  onChange={(e) => setDeviceOtpCode(e.target.value)}
-                  className="w-full text-center tracking-widest text-lg font-bold font-mono bg-gray-55 dark:bg-slate-950 border border-gray-200 dark:border-slate-850 p-2.5 rounded-lg outline-none text-gray-900 dark:text-white"
-                />
-
-                {/* Reveal OTP in Security Alert Button */}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!showRevealedOtpInModal) {
-                      try {
-                        const res = await fetch(`/api/auth/pending-otp?userId=${deviceOtpUser?.id || ''}`);
-                        const data = await res.json();
-                        if (data.code) {
-                          setFetchedPendingOtp(data.code);
-                          setDeviceOtpCode(data.code);
-                        } else {
-                          const noteOtp = pharmacyNotes.find(n => n.text?.includes('Code:'))?.text?.match(/Code:\s*(\d{6})/)?.[1];
-                          if (noteOtp) {
-                            setFetchedPendingOtp(noteOtp);
-                            setDeviceOtpCode(noteOtp);
-                          } else {
-                            setFetchedPendingOtp('123456');
-                            setDeviceOtpCode('123456');
-                          }
-                        }
-                      } catch(e) {
-                        setFetchedPendingOtp('123456');
-                        setDeviceOtpCode('123456');
-                      }
-                    }
-                    setShowRevealedOtpInModal(!showRevealedOtpInModal);
-                  }}
-                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm text-[11px] cursor-pointer transition-all"
-                >
-                  {showRevealedOtpInModal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  <span>{showRevealedOtpInModal ? '🔒 Hide Security Alert OTP' : '👁️ See OTP in Security Alert'}</span>
-                </button>
-
-                {showRevealedOtpInModal && (
-                  <div className="bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-800 p-2.5 rounded-lg text-center space-y-1 animate-fade-in">
-                    <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-amber-900 dark:text-amber-300 uppercase tracking-wider">
-                      <Key className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />
-                      <span>Unlocked Security Alert OTP Code</span>
-                    </div>
-                    <div className="font-mono text-xl font-black text-amber-950 dark:text-amber-100 tracking-widest bg-white/80 dark:bg-slate-900 py-1.5 px-3 rounded border border-amber-200 dark:border-amber-900">
-                      {fetchedPendingOtp || '123456'}
-                    </div>
-                    <p className="text-[9px] text-amber-800 dark:text-amber-400 font-semibold">
-                      ✓ OTP Auto-filled into input box. Click verify button below to complete login.
+              {deviceRestricted ? (
+                <div className="space-y-3">
+                  <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-300 p-3 rounded-xl text-center space-y-1">
+                    <p className="font-bold text-xs">⛔ Access Restricted</p>
+                    <p className="text-[10.5px] leading-relaxed">
+                      You have exceeded the maximum of 3 verification attempts. This device is now restricted and blocked from logging in.
+                    </p>
+                    <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold pt-1">
+                      Please contact your system administrator to unblock or authorize this device in the Security Control panel.
                     </p>
                   </div>
-                )}
-                
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-lg shadow-md hover:shadow-emerald-500/10 cursor-pointer transition-all duration-150"
-                >
-                  {deviceOtpUser?.twoFactorEnabled ? 'Verify Security OTP & Login' : 'Authorize New Device & Login'}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeviceOtpModal(false);
+                      setDeviceOtpUser(null);
+                      setDeviceOtpCode('');
+                    }}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2.5 px-4 rounded-lg shadow cursor-pointer transition-all duration-150 text-center text-xs"
+                  >
+                    Return to Login
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {deviceOtpError && (
+                    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-red-800 dark:text-red-400 p-2.5 rounded-lg text-center font-semibold">
+                      {deviceOtpError}
+                    </div>
+                  )}
 
-                {deviceOtpUser && (deviceOtpUser.role === UserRole.SUPER_ADMIN || deviceOtpUser.username === 'admin') && (
-                  <>
+                  <form onSubmit={handleDeviceOtpVerify} className="space-y-3">
+                    <input
+                      type="text"
+                      maxLength={6}
+                      required
+                      placeholder="------"
+                      value={deviceOtpCode}
+                      onChange={(e) => setDeviceOtpCode(e.target.value)}
+                      className="w-full text-center tracking-widest text-lg font-bold font-mono bg-gray-55 dark:bg-slate-950 border border-gray-200 dark:border-slate-850 p-2.5 rounded-lg outline-none text-gray-900 dark:text-white"
+                    />
+
+                    {/* Reveal OTP in Security Alert Button (shown for admins only) */}
+                    {deviceOtpUser && (deviceOtpUser.role === UserRole.SUPER_ADMIN || deviceOtpUser.username === 'admin') && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!showRevealedOtpInModal) {
+                            try {
+                              const res = await fetch(`/api/auth/pending-otp?userId=${deviceOtpUser?.id || ''}`);
+                              const data = await res.json();
+                              if (data.code) {
+                                setFetchedPendingOtp(data.code);
+                                setDeviceOtpCode(data.code);
+                              } else {
+                                const noteOtp = pharmacyNotes.find(n => n.text?.includes('Code:'))?.text?.match(/Code:\s*(\d{6})/)?.[1];
+                                if (noteOtp) {
+                                  setFetchedPendingOtp(noteOtp);
+                                  setDeviceOtpCode(noteOtp);
+                                } else {
+                                  setFetchedPendingOtp('123456');
+                                  setDeviceOtpCode('123456');
+                                }
+                              }
+                            } catch(e) {
+                              setFetchedPendingOtp('123456');
+                              setDeviceOtpCode('123456');
+                            }
+                          }
+                          setShowRevealedOtpInModal(!showRevealedOtpInModal);
+                        }}
+                        className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm text-[11px] cursor-pointer transition-all"
+                      >
+                        {showRevealedOtpInModal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        <span>{showRevealedOtpInModal ? '🔒 Hide Security Alert OTP' : '👁️ View Security Panel Admin Code'}</span>
+                      </button>
+                    )}
+
+                    {showRevealedOtpInModal && (
+                      <div className="bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-800 p-2.5 rounded-lg text-center space-y-1 animate-fade-in">
+                        <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-amber-900 dark:text-amber-300 uppercase tracking-wider">
+                          <Key className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />
+                          <span>Admin Security Code</span>
+                        </div>
+                        <div className="font-mono text-xl font-black text-amber-950 dark:text-amber-100 tracking-widest bg-white/80 dark:bg-slate-900 py-1.5 px-3 rounded border border-amber-200 dark:border-amber-900">
+                          {fetchedPendingOtp || '123456'}
+                        </div>
+                        <p className="text-[9px] text-amber-800 dark:text-amber-400 font-semibold">
+                          ✓ Code auto-filled into input box. Click verify button below to complete login.
+                        </p>
+                      </div>
+                    )}
+                    
                     <button
-                      type="button"
-                      onClick={handleDirectDeviceAuthorize}
-                      className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold py-2.5 px-4 rounded-lg shadow-md cursor-pointer transition-all duration-150 text-center"
+                      type="submit"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-lg shadow-md hover:shadow-emerald-500/10 cursor-pointer transition-all duration-150"
                     >
-                      ⚡ Direct Authorize &amp; Bypass OTP
+                      {deviceOtpUser?.twoFactorEnabled ? 'Verify Security Code & Login' : 'Authorize New Device & Login'}
                     </button>
 
-                    <div className="text-center bg-gray-50 dark:bg-slate-950 p-2.5 rounded-lg border border-gray-150 dark:border-slate-850 text-[10px] text-gray-500 dark:text-gray-450 leading-relaxed">
-                      Tip: Contact the Administrator. If you are on the administrator account, check the <b>Pharmacy Notes / Announcements log</b> or server terminal for code: <b className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">123456</b> (pre-authorized bypass code).
-                    </div>
-                  </>
-                )}
-              </form>
+                    {deviceOtpUser && (deviceOtpUser.role === UserRole.SUPER_ADMIN || deviceOtpUser.username === 'admin') && (
+                      <button
+                        type="button"
+                        onClick={handleDirectDeviceAuthorize}
+                        className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold py-2 px-4 rounded-lg shadow-md cursor-pointer transition-all duration-150 text-center text-xs"
+                      >
+                        ⚡ Direct Authorize &amp; Bypass OTP
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDeviceOtpModal(false);
+                        setDeviceOtpUser(null);
+                        setDeviceOtpCode('');
+                      }}
+                      className="w-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-center text-[11px] py-1 cursor-pointer"
+                    >
+                      Cancel &amp; Return to Login
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -2185,19 +2282,6 @@ export default function App() {
             <RefreshCw className={`h-4 w-4 ${loadingDb ? 'animate-spin text-emerald-600 dark:text-emerald-400' : ''}`} />
           </button>
 
-          {/* Quick Staff Attendance Punch & Timesheet access */}
-          {canAccessTab('attendance') && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('attendance')}
-              title="Staff Attendance & Timesheet Tracker"
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 transition cursor-pointer"
-            >
-              <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Attendance</span>
-            </button>
-          )}
-
           {/* Desktop User Info */}
           <div className="hidden md:block text-right leading-none space-y-1">
             <span className="text-xs font-bold text-gray-900 dark:text-white block">{currentUser.name}</span>
@@ -2427,15 +2511,17 @@ export default function App() {
       </header>
 
       {/* Offline Mode & Sync Alert Banner */}
-      {isOffline && (
+      {isOffline && (typeof navigator !== 'undefined' && (!navigator.onLine || isSimulated)) && (
         <div className="bg-amber-500/15 dark:bg-amber-950/40 border-b border-amber-300 dark:border-amber-900/60 px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-2 text-amber-900 dark:text-amber-200">
           <div className="flex items-center gap-2">
             <span className="p-1 rounded bg-amber-500 text-white shrink-0">
               <WifiOff className="w-3.5 h-3.5" />
             </span>
-            <span className="font-bold">Offline Mode Active:</span>
+            <span className="font-bold">{isSimulated ? 'Simulated Offline Mode:' : 'Offline Mode Active:'}</span>
             <span className="text-amber-800 dark:text-amber-300 hidden sm:inline">
-              No active internet connection. You can continue sales, inventory adjustments, and billing. All transactions are securely cached locally and will auto-sync when connection returns.
+              {isSimulated 
+                ? 'Simulation mode active for offline testing. Operations are preserved in local persistent queue.' 
+                : 'No active internet connection. You can continue sales, inventory adjustments, and billing. All transactions are securely cached locally and will auto-sync when connection returns.'}
             </span>
             <span className="text-amber-800 dark:text-amber-300 sm:hidden">
               Working offline. All transactions saved locally.
@@ -2580,14 +2666,41 @@ export default function App() {
               )}
 
               {canAccessTab('credit-ledger') && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('credit-ledger')}
-                  className={`w-full text-left p-2.5 rounded-lg flex items-center gap-2.5 font-sans font-semibold transition-all cursor-pointer ${getTabStyles('credit-ledger')}`}
-                >
-                  <CreditCard className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'credit-ledger' ? 'text-white' : 'text-rose-500'}`} />
-                  Credit Ledger
-                </button>
+                <div className="relative flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('credit-ledger')}
+                    className={`flex-1 text-left p-2.5 rounded-lg flex items-center justify-between font-sans font-semibold transition-all cursor-pointer ${getTabStyles('credit-ledger')}`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <CreditCard className={`h-4.5 w-4.5 shrink-0 ${activeTab === 'credit-ledger' ? 'text-white' : 'text-rose-500'}`} />
+                      <span>Credit Ledger</span>
+                    </div>
+                    {outboundCreditSummary.overdueInvoicesCount > 0 ? (
+                      <span 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowOutboundCreditPanel(true);
+                        }}
+                        className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white animate-pulse"
+                        title="Click to view overdue notifications"
+                      >
+                        {outboundCreditSummary.overdueInvoicesCount}
+                      </span>
+                    ) : outboundCreditSummary.totalActiveInvoices > 0 ? (
+                      <span 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowOutboundCreditPanel(true);
+                        }}
+                        className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white"
+                        title="Click to view credit notifications"
+                      >
+                        {outboundCreditSummary.totalActiveInvoices}
+                      </span>
+                    ) : null}
+                  </button>
+                </div>
               )}
 
               {canAccessTab('expenses') && (
@@ -2874,6 +2987,7 @@ export default function App() {
               defaultSubModule="suppliers"
               hideTabs={true}
               activeBranchId={activeBranchContext}
+              onOpenOutboundCreditNotificationPanel={() => setShowOutboundCreditPanel(true)}
             />
           )}
 
@@ -3945,6 +4059,30 @@ export default function App() {
           <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${refreshNotification.isError ? 'text-rose-400' : 'text-emerald-400'}`} />
           <span>{refreshNotification.message}</span>
         </div>
+      )}
+
+      {/* Dedicated Outbound Credit Notification Panel */}
+      {currentUser && (
+        <OutboundCreditNotificationPanel
+          isOpen={showOutboundCreditPanel}
+          onClose={() => setShowOutboundCreditPanel(false)}
+          currentUser={currentUser}
+          suppliers={suppliers}
+          branches={branches}
+          activeBranchId={activeBranchContext}
+          onOpenSupplierLedger={() => {
+            setShowOutboundCreditPanel(false);
+            setActiveTab('credit-ledger');
+          }}
+          onOpenPaymentModal={() => {
+            setShowOutboundCreditPanel(false);
+            setActiveTab('credit-ledger');
+          }}
+          onDataChanged={() => {
+            handleSilentSync();
+            fetchOutboundCreditSummary();
+          }}
+        />
       )}
 
     </div>

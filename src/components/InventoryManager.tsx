@@ -5,9 +5,11 @@ import {
   Settings, Layers, Trash2, Edit2, CheckCircle, Info, Search,
   Clipboard, ArrowRightLeft, Download, Check, RefreshCw, Eye, X, ArrowUpRight, ArrowDownLeft, ArrowDownRight, Filter,
   Volume2, VolumeX, Mic, MicOff, TrendingUp, TrendingDown, Activity, Sparkles,
-  Building2, Globe, AlertTriangle, CheckSquare, Square
+  Building2, Globe, AlertTriangle, CheckSquare, Square,
+  ScanLine, Camera, FileText
 } from 'lucide-react';
 import { Medicine, StockItem, Supplier, Sale, PurchaseOrder, StockTransfer, ProductCategory, ItemAddPresetDefaults } from '../types.ts';
+import { ScanItemsModal } from './ScanItemsModal';
 
 interface InventoryManagerProps {
   currentUser: any;
@@ -33,6 +35,8 @@ export default function InventoryManager({
   const [localStockItems, setLocalStockItems] = useState<StockItem[]>(passedStockItems);
   const [localMedicines, setLocalMedicines] = useState<Medicine[]>(passedMedicines);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [showScanModal, setShowScanModal] = useState<boolean>(false);
+  const [scanModalMode, setScanModalMode] = useState<'invoice' | 'photo' | 'camera'>('invoice');
 
   useEffect(() => {
     setLocalStockItems(passedStockItems);
@@ -60,8 +64,7 @@ export default function InventoryManager({
     // Instant Optimistic Local Update (0ms latency!)
     setLocalStockItems(prev => prev.map(st => {
       if (st.id === targetItem.id) {
-        const newStore = st.storeQuantity !== undefined ? Math.max(0, st.storeQuantity + actualDiff) : newQty;
-        return { ...st, quantity: newQty, storeQuantity: newStore };
+        return { ...st, quantity: newQty, storeQuantity: newQty, dispensaryQuantity: 0 };
       }
       return st;
     }));
@@ -99,7 +102,7 @@ export default function InventoryManager({
     batchNumber: '',
     expiryDate: '',
     quantity: 10,
-    buyingPrice: 0,
+    buyingPrice: 0 as number | string,
     supplierId: 's1',
     branchId: 'b1',
     isDamaged: false,
@@ -181,9 +184,9 @@ export default function InventoryManager({
   // Product state for addition & editing
   const [newMed, setNewMed] = useState({
     name: '', genericName: '', barcode: '', sku: '', category: 'Antibiotics', subCategory: '',
-    price: 100, buyingPrice: 70, isPrescriptionRequired: false, unit: 'Piece (PCS)', minStockLevel: 10, description: '',
-    productType: 'medicine' as 'medicine' | 'cosmetics', imageUrl: '', profitMargin: 30, useMarginPricing: true,
-    batchNumber: '', storeQuantity: 0, dispensaryQuantity: 0, 
+    price: 100 as number | string, buyingPrice: 70 as number | string, isPrescriptionRequired: false, unit: 'Piece (PCS)', minStockLevel: 10, description: '',
+    productType: 'medicine' as 'medicine' | 'cosmetics', imageUrl: '', profitMargin: 30 as number | string, useMarginPricing: true,
+    batchNumber: '', quantity: 0, storeQuantity: 0, dispensaryQuantity: 0, 
     expiryDate: '', 
     supplierId: 's1', branchId: (activeBranchId && activeBranchId !== 'all') ? activeBranchId : 'b1', purchaseInvoiceNumber: '', totalQuantity: 0
   });
@@ -289,8 +292,8 @@ export default function InventoryManager({
 
   // Simple physical adjustment (quantity & price) states
   const [simpleAdjQty, setSimpleAdjQty] = useState<number | ''>('');
-  const [simpleAdjPrice, setSimpleAdjPrice] = useState<number | ''>('');
-  const [simpleAdjBuyingPrice, setSimpleAdjBuyingPrice] = useState<number | ''>('');
+  const [simpleAdjPrice, setSimpleAdjPrice] = useState<number | string | ''>('');
+  const [simpleAdjBuyingPrice, setSimpleAdjBuyingPrice] = useState<number | string | ''>('');
   const [simpleAdjReason, setSimpleAdjReason] = useState<string>('Physical stock count adjustment');
 
   useEffect(() => {
@@ -899,9 +902,32 @@ export default function InventoryManager({
       if (res.ok) {
         const data = await res.json();
         if (data.presets) {
-          setServerPresets(data.presets);
+          let localObj: any = {};
           try {
-            localStorage.setItem('pharmacy_last_add_defaults', JSON.stringify(data.presets));
+            const stored = localStorage.getItem('pharmacy_last_add_defaults');
+            if (stored) localObj = JSON.parse(stored);
+          } catch (e) {}
+
+          const merged: ItemAddPresetDefaults = {
+            ...data.presets,
+            ...localObj,
+            batchNumber: localObj.batchNumber || data.presets.batchNumber || '',
+            expiryDate: localObj.expiryDate || data.presets.expiryDate || '',
+            unit: localObj.unit || data.presets.unit || 'Piece (PCS)',
+            category: localObj.category || data.presets.category || 'Antibiotics',
+            subCategory: localObj.subCategory || data.presets.subCategory || '',
+            buyingPrice: localObj.buyingPrice !== undefined ? localObj.buyingPrice : data.presets.buyingPrice,
+            price: localObj.price !== undefined ? localObj.price : data.presets.price,
+            profitMargin: localObj.profitMargin !== undefined ? localObj.profitMargin : data.presets.profitMargin,
+            useMarginPricing: localObj.useMarginPricing !== undefined ? localObj.useMarginPricing : data.presets.useMarginPricing,
+            supplierId: localObj.supplierId || data.presets.supplierId || 's1',
+            purchaseInvoiceNumber: localObj.purchaseInvoiceNumber || data.presets.purchaseInvoiceNumber || '',
+            branchId: localObj.branchId || data.presets.branchId || 'b1'
+          };
+
+          setServerPresets(merged);
+          try {
+            localStorage.setItem('pharmacy_last_add_defaults', JSON.stringify(merged));
           } catch (e) {}
         }
       }
@@ -932,6 +958,7 @@ export default function InventoryManager({
       subCategory: merged.subCategory || '',
       productType: (merged.productType as 'medicine' | 'cosmetics') || 'medicine',
       unit: merged.unit || 'Piece (PCS)',
+      batchNumber: merged.batchNumber || '',
       supplierId: merged.supplierId || (suppliers[0]?.id || 's1'),
       supplierName: merged.supplierName || '',
       purchaseInvoiceNumber: merged.purchaseInvoiceNumber || '',
@@ -946,7 +973,10 @@ export default function InventoryManager({
       description: merged.description || '',
       rememberDefaults: merged.rememberDefaults !== undefined ? !!merged.rememberDefaults : true,
       lastAddedItemName: merged.lastAddedItemName || serverPresets?.lastAddedItemName || '',
-      lastAddedAt: merged.lastAddedAt || serverPresets?.lastAddedAt || ''
+      lastAddedAt: merged.lastAddedAt || serverPresets?.lastAddedAt || '',
+      customCategory: merged.customCategory,
+      customSubCategory: merged.customSubCategory,
+      customUnit: merged.customUnit
     };
   };
 
@@ -984,6 +1014,7 @@ export default function InventoryManager({
       profitMargin: 30,
       useMarginPricing: true,
       batchNumber: '',
+      quantity: 0,
       storeQuantity: 0,
       dispensaryQuantity: 0,
       expiryDate: '',
@@ -992,6 +1023,9 @@ export default function InventoryManager({
       purchaseInvoiceNumber: '',
       totalQuantity: 0
     });
+    setCustomCategory('');
+    setCustomSubCategory('');
+    setCustomUnit('');
     showToast('✨ Form reset to blank default template.');
   };
 
@@ -1000,7 +1034,8 @@ export default function InventoryManager({
     setNewMed(prev => ({
       ...prev,
       category: defaults.category || prev.category,
-      subCategory: defaults.subCategory || '',
+      subCategory: defaults.subCategory || prev.subCategory,
+      batchNumber: defaults.batchNumber || prev.batchNumber,
       productType: (defaults.productType as 'medicine' | 'cosmetics') || prev.productType,
       unit: defaults.unit || prev.unit,
       supplierId: defaults.supplierId || prev.supplierId,
@@ -1015,6 +1050,9 @@ export default function InventoryManager({
       minStockLevel: defaults.minStockLevel !== undefined ? defaults.minStockLevel : prev.minStockLevel,
       description: defaults.description !== undefined ? defaults.description : prev.description
     }));
+    if (defaults.category) setCustomCategory(defaults.customCategory || defaults.category);
+    if (defaults.subCategory) setCustomSubCategory(defaults.customSubCategory || defaults.subCategory);
+    if (defaults.unit) setCustomUnit(defaults.customUnit || defaults.unit);
     showToast('⚡ Applied saved info from last added item.');
   };
 
@@ -1038,7 +1076,8 @@ export default function InventoryManager({
       imageUrl: '',
       profitMargin: defaults.profitMargin !== undefined ? defaults.profitMargin : 30,
       useMarginPricing: defaults.useMarginPricing !== undefined ? defaults.useMarginPricing : true,
-      batchNumber: '',
+      batchNumber: defaults.batchNumber || '',
+      quantity: 0,
       storeQuantity: 0,
       dispensaryQuantity: 0,
       expiryDate: defaults.expiryDate || '',
@@ -1047,7 +1086,13 @@ export default function InventoryManager({
       purchaseInvoiceNumber: defaults.purchaseInvoiceNumber || '',
       totalQuantity: 0
     });
+    if (defaults.category) setCustomCategory(defaults.customCategory || defaults.category);
+    if (defaults.subCategory) setCustomSubCategory(defaults.customSubCategory || defaults.subCategory);
+    if (defaults.unit) setCustomUnit(defaults.customUnit || defaults.unit);
     setShowAddMedModal(true);
+    setTimeout(() => {
+      document.getElementById('new-item-product-name-input')?.focus();
+    }, 120);
   };
 
   // Watch name typing to provide auto suggestions
@@ -1147,8 +1192,8 @@ export default function InventoryManager({
     const lastBatch = lastStock ? lastStock.batchNumber : `B-${Date.now().toString().slice(-4)}`;
     const lastExpiry = lastStock ? lastStock.expiryDate : (template.productType === 'cosmetics' ? '' : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const lastInvoice = lastStock ? ((lastStock as any).purchaseInvoiceNumber || '') : ((template as any).purchaseInvoiceNumber || '');
-    const lastStoreQty = lastStock ? (lastStock.storeQuantity !== undefined ? lastStock.storeQuantity : lastStock.quantity) : 10;
-    const lastDispQty = lastStock ? (lastStock.dispensaryQuantity !== undefined ? lastStock.dispensaryQuantity : 0) : 0;
+    const lastStoreQty = 0;
+    const lastDispQty = 0;
     const targetProductType = (template.productType as 'medicine' | 'cosmetics') || (template.category?.toLowerCase() === 'cosmetics' ? 'cosmetics' : 'medicine');
 
     setNewMed({
@@ -1170,9 +1215,10 @@ export default function InventoryManager({
       supplierId: lastSupplier,
       branchId: lastStock ? lastStock.branchId : ((activeBranchId && activeBranchId !== 'all') ? activeBranchId : 'b1'),
       purchaseInvoiceNumber: lastInvoice,
-      storeQuantity: lastStoreQty,
-      dispensaryQuantity: lastDispQty,
-      totalQuantity: lastStoreQty + lastDispQty,
+      quantity: 0,
+      storeQuantity: 0,
+      dispensaryQuantity: 0,
+      totalQuantity: 0,
     });
 
     // Save information for the next add session
@@ -1269,31 +1315,42 @@ export default function InventoryManager({
     return currentPrice;
   };
 
-  const handleBuyingPriceChange = (val: number) => {
+  const handleBuyingPriceChange = (valStr: string | number) => {
+    const valNum = typeof valStr === 'number' ? valStr : (valStr === '' ? 0 : parseFloat(valStr) || 0);
     setNewMed(prev => {
-      const calculatedPrice = calculateMarginPrice(val, prev.profitMargin, prev.useMarginPricing, prev.price);
-      return { ...prev, buyingPrice: val, price: calculatedPrice };
+      const marginNum = typeof prev.profitMargin === 'number' ? prev.profitMargin : (parseFloat(String(prev.profitMargin)) || 0);
+      const currentPriceNum = typeof prev.price === 'number' ? prev.price : (parseFloat(String(prev.price)) || 0);
+      const calculatedPrice = calculateMarginPrice(valNum, marginNum, prev.useMarginPricing, currentPriceNum);
+      return { ...prev, buyingPrice: valStr, price: prev.useMarginPricing ? calculatedPrice : prev.price };
     });
   };
 
-  const handleMarginChange = (val: number) => {
+  const handleMarginChange = (valStr: string | number) => {
+    const valNum = typeof valStr === 'number' ? valStr : (valStr === '' ? 0 : parseFloat(valStr) || 0);
     setNewMed(prev => {
-      const calculatedPrice = calculateMarginPrice(prev.buyingPrice, val, prev.useMarginPricing, prev.price);
-      return { ...prev, profitMargin: val, price: calculatedPrice };
+      const buyingNum = typeof prev.buyingPrice === 'number' ? prev.buyingPrice : (parseFloat(String(prev.buyingPrice)) || 0);
+      const currentPriceNum = typeof prev.price === 'number' ? prev.price : (parseFloat(String(prev.price)) || 0);
+      const calculatedPrice = calculateMarginPrice(buyingNum, valNum, prev.useMarginPricing, currentPriceNum);
+      return { ...prev, profitMargin: valStr, price: calculatedPrice };
     });
   };
 
   const handleUseMarginToggle = (checked: boolean) => {
     setNewMed(prev => {
-      const calculatedPrice = calculateMarginPrice(prev.buyingPrice, prev.profitMargin, checked, prev.price);
+      const buyingNum = typeof prev.buyingPrice === 'number' ? prev.buyingPrice : (parseFloat(String(prev.buyingPrice)) || 0);
+      const marginNum = typeof prev.profitMargin === 'number' ? prev.profitMargin : (parseFloat(String(prev.profitMargin)) || 0);
+      const currentPriceNum = typeof prev.price === 'number' ? prev.price : (parseFloat(String(prev.price)) || 0);
+      const calculatedPrice = calculateMarginPrice(buyingNum, marginNum, checked, currentPriceNum);
       return { ...prev, useMarginPricing: checked, price: calculatedPrice };
     });
   };
 
-  const handleStaticPriceChange = (val: number) => {
+  const handleStaticPriceChange = (valStr: string | number) => {
+    const valNum = typeof valStr === 'number' ? valStr : (valStr === '' ? 0 : parseFloat(valStr) || 0);
     setNewMed(prev => {
-      const margin = prev.buyingPrice > 0 ? Math.round(((val - prev.buyingPrice) / prev.buyingPrice) * 100) : 0;
-      return { ...prev, price: val, profitMargin: margin };
+      const buyingNum = typeof prev.buyingPrice === 'number' ? prev.buyingPrice : (parseFloat(String(prev.buyingPrice)) || 0);
+      const margin = buyingNum > 0 ? Number((((valNum - buyingNum) / buyingNum) * 100).toFixed(1)) : 0;
+      return { ...prev, price: valStr, profitMargin: margin };
     });
   };
 
@@ -2171,7 +2228,7 @@ export default function InventoryManager({
   };
 
   // Submit Medicine catalog creation/edit
-  const handleCreateMedicineSubmit = async (e: React.FormEvent) => {
+  const handleCreateMedicineSubmit = async (e: React.FormEvent, keepModalOpen = false) => {
     e.preventDefault();
     if (isSubmittingMed) return;
 
@@ -2190,8 +2247,8 @@ export default function InventoryManager({
         ...editingMed,
         name: newMed.name,
         genericName: newMed.genericName || '',
-        price: Number(newMed.price),
-        buyingPrice: Number(newMed.buyingPrice || editingMed.buyingPrice || 0),
+        price: parseFloat(String(newMed.price)) || 0,
+        buyingPrice: parseFloat(String(newMed.buyingPrice || editingMed.buyingPrice || 0)),
         imageUrl: newMed.imageUrl,
         description: newMed.description,
         category: newMed.category,
@@ -2304,15 +2361,16 @@ export default function InventoryManager({
       return;
     }
 
-    let finalPrice = Number(newMed.price);
-    const buyingPriceVal = Number(newMed.buyingPrice) || 0;
-    if (finalPrice <= buyingPriceVal) {
-      finalPrice = buyingPriceVal > 0 ? Math.max(buyingPriceVal + 10, Math.round(buyingPriceVal * 1.3)) : 100;
+    let finalPrice = parseFloat(String(newMed.price)) || 0;
+    const buyingPriceVal = parseFloat(String(newMed.buyingPrice)) || 0;
+    if (finalPrice <= buyingPriceVal && buyingPriceVal > 0) {
+      finalPrice = Number((buyingPriceVal * 1.3).toFixed(2));
+    } else if (finalPrice <= 0) {
+      finalPrice = 100;
     }
 
-    const initStoreQty = Number(newMed.storeQuantity) || 0;
-    const initDispQty = Number(newMed.dispensaryQuantity) || 0;
-    const totalInitQty = Math.max(0, initStoreQty + initDispQty);
+    const initQty = Number(newMed.quantity !== undefined ? newMed.quantity : (newMed.totalQuantity !== undefined ? newMed.totalQuantity : newMed.storeQuantity)) || 0;
+    const totalInitQty = Math.max(0, initQty);
     const isCosmetics = newMed.productType === 'cosmetics';
 
     let batchNumberToSubmit = (newMed.batchNumber || '').trim();
@@ -2414,8 +2472,8 @@ export default function InventoryManager({
           buyingPrice: buyingPriceVal,
           supplierId: newMed.supplierId || 's1',
           isDamaged: false,
-          storeQuantity: initStoreQty || totalInitQty,
-          dispensaryQuantity: initDispQty || 0,
+          storeQuantity: totalInitQty,
+          dispensaryQuantity: 0,
           originalQuantity: totalInitQty,
           createdAt: new Date().toISOString().split('T')[0],
           purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || undefined
@@ -2428,31 +2486,41 @@ export default function InventoryManager({
     setLocalMedicines(prev => [optimisticMedRecord, ...prev]);
 
     // Save defaults for consecutive adds
+    const effectiveBatchNumber = (newMed.batchNumber || batchNumberToSubmit || '').trim();
+    const effectiveExpiryDate = (newMed.expiryDate || expiryDateToSubmit || '').trim();
+    const effectiveSubCategory = (newMed.subCategory || customSubCategory || '').trim();
+    const effectiveCategory = (newMed.category || customCategory || 'Antibiotics').trim();
+    const effectiveUnit = (newMed.unit || customUnit || 'Piece (PCS)').trim();
+
     const newDefaults: ItemAddPresetDefaults = {
-      unit: newMed.unit,
-      category: newMed.category,
-      subCategory: newMed.subCategory,
-      supplierId: newMed.supplierId,
+      unit: effectiveUnit,
+      category: effectiveCategory,
+      subCategory: effectiveSubCategory,
+      batchNumber: effectiveBatchNumber,
+      supplierId: newMed.supplierId || 's1',
       supplierName,
       purchaseInvoiceNumber: newMed.purchaseInvoiceNumber || '',
-      branchId: newMed.branchId,
-      expiryDate: expiryDateToSubmit,
+      branchId: newMed.branchId || targetBranchId,
+      expiryDate: effectiveExpiryDate,
       buyingPrice: buyingPriceVal,
       price: finalPrice,
       productType: newMed.productType,
       profitMargin: Number(newMed.profitMargin) || 30,
-      useMarginPricing: !!newMed.useMarginPricing,
+      useMarginPricing: newMed.useMarginPricing !== undefined ? !!newMed.useMarginPricing : true,
       isPrescriptionRequired: !!newMed.isPrescriptionRequired,
       minStockLevel: Number(newMed.minStockLevel) || 10,
-      description: newMed.description || '',
+      description: '',
       rememberDefaults: true,
       lastAddedItemName: newMed.name,
-      lastAddedAt: new Date().toISOString()
+      lastAddedAt: new Date().toISOString(),
+      customCategory: customCategory || effectiveCategory,
+      customSubCategory: customSubCategory || effectiveSubCategory,
+      customUnit: customUnit || effectiveUnit
     };
     saveLastAddDefaults(newDefaults);
 
-    // Close modal instantly on 1 click
-    setShowAddMedModal(false);
+    // If keepModalOpen is true, keep modal open for next addition; otherwise close it.
+    setShowAddMedModal(keepModalOpen);
     setEditingMed(null);
     setIsNewMedSplit(false);
     discardInventoryDraft();
@@ -2460,16 +2528,17 @@ export default function InventoryManager({
       name: '', genericName: '', barcode: '', sku: '', 
       category: newDefaults.category || 'Antibiotics',
       subCategory: newDefaults.subCategory || '',
-      price: newDefaults.price || 100, 
-      buyingPrice: newDefaults.buyingPrice || 70, 
+      price: newDefaults.price !== undefined ? newDefaults.price : 100, 
+      buyingPrice: newDefaults.buyingPrice !== undefined ? newDefaults.buyingPrice : 70, 
       isPrescriptionRequired: !!newDefaults.isPrescriptionRequired, 
       unit: newDefaults.unit || 'Piece (PCS)', 
-      minStockLevel: newDefaults.minStockLevel || 10, 
-      description: newDefaults.description || '',
+      minStockLevel: newDefaults.minStockLevel !== undefined ? newDefaults.minStockLevel : 10, 
+      description: '',
       productType: (newDefaults.productType as 'medicine' | 'cosmetics') || 'medicine', 
-      profitMargin: newDefaults.profitMargin || 30, 
+      profitMargin: newDefaults.profitMargin !== undefined ? newDefaults.profitMargin : 30, 
       useMarginPricing: newDefaults.useMarginPricing !== undefined ? newDefaults.useMarginPricing : true,
-      batchNumber: '', 
+      batchNumber: newDefaults.batchNumber || '', 
+      quantity: 0,
       storeQuantity: 0, 
       dispensaryQuantity: 0, 
       expiryDate: newDefaults.expiryDate || '', 
@@ -2480,11 +2549,26 @@ export default function InventoryManager({
       totalQuantity: 0
     });
 
-    showToast(`⚡ Saved "${newMed.name}" in 1 click.`);
+    if (newDefaults.category) setCustomCategory(newDefaults.customCategory || newDefaults.category);
+    if (newDefaults.subCategory) setCustomSubCategory(newDefaults.customSubCategory || newDefaults.subCategory);
+    if (newDefaults.unit) setCustomUnit(newDefaults.customUnit || newDefaults.unit);
+
+    if (keepModalOpen) {
+      setTimeout(() => {
+        document.getElementById('new-item-product-name-input')?.focus();
+      }, 100);
+      showToast(`✅ Added "${newMed.name}". Ready for next item (Unit: ${newDefaults.unit} • Category: ${newDefaults.category} • Batch: ${newDefaults.batchNumber || 'N/A'} • Exp: ${newDefaults.expiryDate || 'N/A'} • Price: ${newDefaults.price} ETB).`);
+    } else {
+      showToast(`⚡ Saved "${newMed.name}". All specifications (Unit, Category, Batch, Exp, Prices) saved for next add.`);
+    }
 
     // Perform background persistent network save
     const submitPayload = {
       ...newMed,
+      quantity: totalInitQty,
+      totalQuantity: totalInitQty,
+      storeQuantity: totalInitQty,
+      dispensaryQuantity: 0,
       price: finalPrice,
       buyingPrice: buyingPriceVal,
       batchNumber: batchNumberToSubmit,
@@ -2640,9 +2724,9 @@ export default function InventoryManager({
           batchNumber: targetBatch.batchNumber,
           expiryDate: targetBatch.expiryDate,
           quantity: targetBatch.quantity,
-          storeQuantity: targetBatch.storeQuantity !== undefined ? targetBatch.storeQuantity : targetBatch.quantity,
-          dispensaryQuantity: targetBatch.dispensaryQuantity !== undefined ? targetBatch.dispensaryQuantity : 0,
-          buyingPrice: targetBatch.buyingPrice,
+          storeQuantity: targetBatch.quantity,
+          dispensaryQuantity: 0,
+          buyingPrice: parseFloat(String(targetBatch.buyingPrice)) || 0,
           supplierId: targetBatch.supplierId,
           isDamaged: !!targetBatch.isDamaged,
           notes: targetBatch.notes
@@ -2659,9 +2743,9 @@ export default function InventoryManager({
           batchNumber: targetBatch.batchNumber,
           expiryDate: targetBatch.expiryDate,
           quantity: targetBatch.quantity,
-          storeQuantity: targetBatch.storeQuantity !== undefined ? targetBatch.storeQuantity : targetBatch.quantity,
-          dispensaryQuantity: targetBatch.dispensaryQuantity !== undefined ? targetBatch.dispensaryQuantity : 0,
-          buyingPrice: targetBatch.buyingPrice,
+          storeQuantity: targetBatch.quantity,
+          dispensaryQuantity: 0,
+          buyingPrice: parseFloat(String(targetBatch.buyingPrice)) || 0,
           supplierId: targetBatch.supplierId,
           isDamaged: !!targetBatch.isDamaged,
           notes: targetBatch.notes,
@@ -2716,8 +2800,7 @@ export default function InventoryManager({
 
     setLocalStockItems(prev => prev.map(st => {
       if (st.id === targetItem.id) {
-        const newStore = st.storeQuantity !== undefined ? Math.max(0, st.storeQuantity + actualDiff) : newQty;
-        return { ...st, quantity: newQty, storeQuantity: newStore, isDamaged: adjustingDamaged };
+        return { ...st, quantity: newQty, storeQuantity: newQty, dispensaryQuantity: 0, isDamaged: adjustingDamaged };
       }
       return st;
     }));
@@ -2952,13 +3035,33 @@ export default function InventoryManager({
             </button>
           )}
           {isAdmin && (
-            <button
-              onClick={handleOpenAddMedicine}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2 px-4 rounded-lg shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
-            >
-              <PackagePlus className="h-4 w-4" />
-              Inventory Add
-            </button>
+            <>
+              <button
+                id="camera-scan-toolbar-btn"
+                onClick={() => { setScanModalMode('camera'); setShowScanModal(true); }}
+                className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 font-semibold text-xs py-2 px-3 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Open camera to snap medicine box or invoice"
+              >
+                <Camera className="h-4 w-4 text-teal-600" />
+                <span>Camera Scan</span>
+              </button>
+              <button
+                id="scan-items-toolbar-btn"
+                onClick={() => { setScanModalMode('invoice'); setShowScanModal(true); }}
+                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-xs py-2 px-3 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Scan purchase invoice to add every item on specific invoice"
+              >
+                <ScanLine className="h-4 w-4 text-emerald-600" />
+                <span>Scan Invoice (All Items)</span>
+              </button>
+              <button
+                onClick={handleOpenAddMedicine}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <PackagePlus className="h-4 w-4" />
+                <span>Inventory Add</span>
+              </button>
+            </>
           )}
           <button
             onClick={exportToExcel}
@@ -3735,9 +3838,6 @@ export default function InventoryManager({
                               </button>
                             </div>
                           )}
-                          <div className="text-[10px] text-gray-500 font-mono mt-0.5">
-                            Store: {st.isConsolidated ? ((st as any).totalStoreQuantity ?? st.totalQuantity) : (st.storeQuantity ?? st.totalQuantity)} • Disp: {st.isConsolidated ? ((st as any).totalDispensaryQuantity ?? 0) : (st.dispensaryQuantity ?? 0)}
-                          </div>
                         </td>
                         <td className="p-3">
                           {isExpired ? (
@@ -3796,16 +3896,6 @@ export default function InventoryManager({
                                       Delete Batch
                                     </button>
                                   )}
-                                  {(st.storeQuantity !== undefined ? st.storeQuantity : st.quantity) > 0 && (
-                                    <button
-                                      onClick={() => { setSelectedTransferStockItem(st); setTransferToDispQty(0); }}
-                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-1 px-2.5 rounded text-[11px] flex items-center gap-1 transition-all cursor-pointer shadow-sm"
-                                      title="Transfer items from Store to Dispensary"
-                                    >
-                                      <ArrowDownRight className="h-3 w-3" />
-                                      To Disp.
-                                    </button>
-                                  )}
                                 </>
                               )
                             )}
@@ -3861,9 +3951,6 @@ export default function InventoryManager({
                                         <td className="p-2 font-mono text-gray-600 font-semibold">{batch.buyingPrice} ETB</td>
                                         <td className="p-2 text-center font-extrabold font-mono text-black">
                                           {batch.quantity} units
-                                          <div className="text-[9px] text-gray-500 font-mono">
-                                            Store: {batch.storeQuantity ?? batch.quantity} • Disp: {batch.dispensaryQuantity ?? 0}
-                                          </div>
                                         </td>
                                         <td className="p-2">
                                           {batchExpired ? (
@@ -3910,16 +3997,6 @@ export default function InventoryManager({
                                                       Adjust
                                                     </button>
                                                   </>
-                                                )}
-                                                {(batch.storeQuantity !== undefined ? batch.storeQuantity : batch.quantity) > 0 && (
-                                                  <button
-                                                    onClick={() => { setSelectedTransferStockItem(batch); setTransferToDispQty(0); }}
-                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-0.5 px-2 rounded text-[9px] flex items-center gap-1 transition-all cursor-pointer shadow-sm"
-                                                    title="Transfer items from Store to Dispensary"
-                                                  >
-                                                    <ArrowDownRight className="h-2.5 w-2.5" />
-                                                    To Disp
-                                                  </button>
                                                 )}
                                               </>
                                             )}
@@ -4663,25 +4740,33 @@ export default function InventoryManager({
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-700 block uppercase tracking-wider">Selling Price (ETB)</label>
                     <input 
-                      type="number"
-                      min="0.01"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={simpleAdjPrice}
-                      onChange={(e) => setSimpleAdjPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setSimpleAdjPrice(val);
+                        }
+                      }}
                       className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none font-mono font-bold text-xs text-gray-950 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-                      placeholder="e.g. 150"
+                      placeholder="e.g. 150.50"
                     />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-700 block uppercase tracking-wider">Buying Cost (ETB)</label>
                     <input 
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={simpleAdjBuyingPrice}
-                      onChange={(e) => setSimpleAdjBuyingPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setSimpleAdjBuyingPrice(val);
+                        }
+                      }}
                       className="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 outline-none font-mono font-bold text-xs text-gray-950 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-                      placeholder="e.g. 100"
+                      placeholder="e.g. 100.25"
                     />
                   </div>
                 </div>
@@ -4788,8 +4873,10 @@ export default function InventoryManager({
                     <input
                       type="number"
                       min="0"
+                      step="any"
+                      placeholder="e.g. 75.50"
                       value={newBatchForm.buyingPrice}
-                      onChange={(e) => setNewBatchForm({ ...newBatchForm, buyingPrice: Number(e.target.value) })}
+                      onChange={(e) => setNewBatchForm({ ...newBatchForm, buyingPrice: e.target.value })}
                       className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-850 font-mono"
                     />
                   </div>
@@ -4927,7 +5014,7 @@ export default function InventoryManager({
                           batchNumber: newBatchForm.batchNumber,
                           expiryDate: newBatchForm.expiryDate,
                           quantity: firstQty,
-                          buyingPrice: newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0,
+                          buyingPrice: Number(newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0),
                           supplierId: newBatchForm.supplierId || 's1',
                           isDamaged: !!newBatchForm.isDamaged,
                           storeQuantity: firstQty,
@@ -4942,7 +5029,7 @@ export default function InventoryManager({
                           batchNumber: newBatchForm.batchNumber,
                           expiryDate: newBatchForm.expiryDate,
                           quantity: secondQty,
-                          buyingPrice: newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0,
+                          buyingPrice: Number(newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0),
                           supplierId: newBatchForm.supplierId || 's1',
                           isDamaged: !!newBatchForm.isDamaged,
                           storeQuantity: secondQty,
@@ -4959,7 +5046,7 @@ export default function InventoryManager({
                           batchNumber: newBatchForm.batchNumber,
                           expiryDate: newBatchForm.expiryDate,
                           quantity: newBatchForm.quantity,
-                          buyingPrice: newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0,
+                          buyingPrice: Number(newBatchForm.buyingPrice || stockManageMed.buyingPrice || 0),
                           supplierId: newBatchForm.supplierId || 's1',
                           isDamaged: !!newBatchForm.isDamaged,
                           storeQuantity: newBatchForm.quantity,
@@ -5115,19 +5202,63 @@ export default function InventoryManager({
             )}
 
             {!editingMed && (
+              <div className="mb-3 p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <ScanLine className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-emerald-950 block">⚡ Quick Capture: Camera or Invoice</span>
+                    <span className="text-[11px] text-emerald-700">Use your camera for individual packaging or scan invoice to add every item</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    id="modal-camera-btn"
+                    onClick={() => {
+                      setShowAddMedModal(false);
+                      setScanModalMode('camera');
+                      setShowScanModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                    title="Open camera to snap box or invoice"
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    <span>Camera</span>
+                  </button>
+                  <button
+                    type="button"
+                    id="modal-scan-invoice-btn"
+                    onClick={() => {
+                      setShowAddMedModal(false);
+                      setScanModalMode('invoice');
+                      setShowScanModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                    title="Upload purchase invoice to import all line items"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    <span>Scan Invoice</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!editingMed && (
               <div className="mb-3.5 p-2.5 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 shrink-0">
                     <Sparkles className="w-3.5 h-3.5" />
                     Consecutive Add Active
                   </span>
-                  {serverPresets?.lastAddedItemName ? (
-                    <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300 font-medium hidden sm:inline">
-                      • Remembering specs from: <strong className="font-semibold">{serverPresets.lastAddedItemName}</strong> ({serverPresets.category} • {serverPresets.unit})
+                  {serverPresets ? (
+                    <span className="text-[11px] text-emerald-850 dark:text-emerald-300 font-medium">
+                      • Saved for next add: <strong className="font-semibold">{serverPresets.category}{serverPresets.subCategory ? ` / ${serverPresets.subCategory}` : ''}</strong> • Unit: <strong>{serverPresets.unit}</strong> {serverPresets.batchNumber ? `• Batch: ${serverPresets.batchNumber}` : ''} {serverPresets.expiryDate ? `• Exp: ${serverPresets.expiryDate}` : ''} • Buy: <strong>{serverPresets.buyingPrice}</strong> / Sell: <strong>{serverPresets.price} ETB</strong>
                     </span>
                   ) : (
                     <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300 font-medium hidden sm:inline">
-                      • Form data automatically persists across all item additions &amp; backups
+                      • Form data (unit, category, subcategory, unit price, batch, exp date) automatically persists for next add
                     </span>
                   )}
                 </div>
@@ -5330,12 +5461,17 @@ export default function InventoryManager({
                     <div className="space-y-1">
                       <label className="font-bold text-gray-700 dark:text-slate-300 block text-xs">Price Adjustment (Retail Selling Price - ETB)</label>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         required
-                        min="1"
-                        placeholder="Price"
+                        placeholder="e.g. 150.50"
                         value={newMed.price}
-                        onChange={(e) => setNewMed({ ...newMed, price: Number(e.target.value) })}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(',', '.');
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setNewMed({ ...newMed, price: val });
+                          }
+                        }}
                         className="w-full bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg p-2.5 outline-none text-emerald-700 dark:text-emerald-400 font-mono font-bold text-xs"
                       />
                     </div>
@@ -5465,6 +5601,7 @@ export default function InventoryManager({
                       </label>
                     </div>
                     <input
+                      id="new-item-product-name-input"
                       type="text"
                       required
                       placeholder={newMed.productType === 'medicine' ? 'e.g. Amoxicillin 500mg' : 'e.g. Aloe Vera Skin Cream'}
@@ -5709,34 +5846,52 @@ export default function InventoryManager({
                   <div className="space-y-1">
                     <label className="text-[10px] text-gray-500 font-semibold block">Buying Cost (ETB)</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       required
-                      min="1"
+                      placeholder="e.g. 70.50"
                       value={newMed.buyingPrice}
-                      onChange={(e) => handleBuyingPriceChange(Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          handleBuyingPriceChange(val);
+                        }
+                      }}
                       className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono font-bold text-[11px]"
                     />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] text-gray-500 font-semibold block">Profit Margin (%)</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       disabled={!newMed.useMarginPricing}
-                      min="0"
+                      placeholder="e.g. 30"
                       value={newMed.profitMargin}
-                      onChange={(e) => handleMarginChange(Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          handleMarginChange(val);
+                        }
+                      }}
                       className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono font-bold text-[11px] disabled:opacity-40"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] text-gray-500 font-semibold block">Retail Selling Price</label>
+                    <label className="text-[10px] text-gray-500 font-semibold block">Retail Selling Price (ETB)</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       required
-                      min="1"
+                      placeholder="e.g. 99.99"
                       disabled={newMed.useMarginPricing}
                       value={newMed.price}
-                      onChange={(e) => handleStaticPriceChange(Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          handleStaticPriceChange(val);
+                        }
+                      }}
                       className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-emerald-700 font-mono font-bold text-[11px] disabled:bg-gray-100 disabled:border-gray-200"
                     />
                   </div>
@@ -5785,11 +5940,11 @@ export default function InventoryManager({
                     {newMed.productType === 'medicine' ? (
                       <div className="space-y-1">
                         <label className="font-bold text-gray-700 block">
-                          Batch Number {(Number(newMed.storeQuantity) > 0 || Number(newMed.dispensaryQuantity) > 0) ? '*' : '(Optional)'}
+                          Batch Number {Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity) > 0 ? '*' : '(Optional)'}
                         </label>
                         <input
                           type="text"
-                          required={Number(newMed.storeQuantity) > 0 || Number(newMed.dispensaryQuantity) > 0}
+                          required={Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity) > 0}
                           placeholder="e.g. B-2026-X1"
                           value={newMed.batchNumber}
                           onChange={(e) => setNewMed({ ...newMed, batchNumber: e.target.value })}
@@ -5800,11 +5955,11 @@ export default function InventoryManager({
 
                     <div className="space-y-1 col-span-1">
                       <label className="font-bold text-gray-700 block">
-                        Expiry Date {newMed.productType === 'medicine' && (Number(newMed.storeQuantity) > 0 || Number(newMed.dispensaryQuantity) > 0) ? '*' : '(Optional)'}
+                        Expiry Date {newMed.productType === 'medicine' && Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity) > 0 ? '*' : '(Optional)'}
                       </label>
                       <input
                         type="date"
-                        required={newMed.productType === 'medicine' && (Number(newMed.storeQuantity) > 0 || Number(newMed.dispensaryQuantity) > 0)}
+                        required={newMed.productType === 'medicine' && Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity) > 0}
                         value={newMed.expiryDate}
                         onChange={(e) => setNewMed({ ...newMed, expiryDate: e.target.value })}
                         className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800"
@@ -5812,28 +5967,22 @@ export default function InventoryManager({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="font-bold text-gray-700 block">Store Quantity</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={newMed.storeQuantity}
-                        onChange={(e) => setNewMed({ ...newMed, storeQuantity: Number(e.target.value) })}
-                        className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono"
-                      />
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="font-bold text-gray-700 block">Initial Stock Quantity (Units)</label>
+                      <span className="text-[10px] text-emerald-700 font-semibold font-mono">Adds this exact number of units to inventory</span>
                     </div>
-
-                    <div className="space-y-1">
-                      <label className="font-bold text-gray-700 block">Dispensary Quantity</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={newMed.dispensaryQuantity}
-                        onChange={(e) => setNewMed({ ...newMed, dispensaryQuantity: Number(e.target.value) })}
-                        className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono"
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity}
+                      onChange={(e) => {
+                        const val = Math.max(0, Number(e.target.value));
+                        setNewMed({ ...newMed, quantity: val, totalQuantity: val, storeQuantity: val, dispensaryQuantity: 0 });
+                      }}
+                      className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono font-bold"
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -5948,7 +6097,7 @@ export default function InventoryManager({
                         onChange={(e) => {
                           setIsNewMedSplit(e.target.checked);
                           if (e.target.checked) {
-                            const totalQty = Number(newMed.storeQuantity) + Number(newMed.dispensaryQuantity);
+                            const totalQty = Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity);
                             const half = Math.max(1, Math.floor(totalQty * 0.75));
                             setNewMedSplitFirstQty(half);
                             const other = branchesList.find(b => b.id !== newMed.branchId)?.id || 'b2';
@@ -5969,16 +6118,16 @@ export default function InventoryManager({
                           <input
                             type="number"
                             min="1"
-                            max={(Number(newMed.storeQuantity) + Number(newMed.dispensaryQuantity)) - 1}
+                            max={(Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity)) - 1}
                             value={newMedSplitFirstQty}
                             onChange={(e) => {
-                              const totalQty = Number(newMed.storeQuantity) + Number(newMed.dispensaryQuantity);
+                              const totalQty = Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity);
                               const val = Math.max(1, Math.min(totalQty - 1, Number(e.target.value)));
                               setNewMedSplitFirstQty(val);
                             }}
                             className="w-full bg-white border border-gray-300 rounded p-1.5 outline-none font-mono text-emerald-900 font-bold text-xs"
                           />
-                          <p className="text-[10px] text-gray-500">Must be less than total ({Number(newMed.storeQuantity) + Number(newMed.dispensaryQuantity)})</p>
+                          <p className="text-[10px] text-gray-500">Must be less than total ({Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity)})</p>
                         </div>
 
                         <div className="space-y-1">
@@ -5993,7 +6142,7 @@ export default function InventoryManager({
                             ))}
                           </select>
                           <p className="text-[10px] font-semibold text-emerald-700 mt-1">
-                            Remainder quantity: <strong className="font-mono text-[11px]">{(Number(newMed.storeQuantity) + Number(newMed.dispensaryQuantity)) - newMedSplitFirstQty} units</strong>
+                            Remainder quantity: <strong className="font-mono text-[11px]">{(Number(newMed.quantity !== undefined ? newMed.quantity : newMed.storeQuantity)) - newMedSplitFirstQty} units</strong>
                           </p>
                         </div>
                       </div>
@@ -6022,19 +6171,30 @@ export default function InventoryManager({
                   />
                   <span>Save information for next add (persists across backups)</span>
                 </label>
-                <div className="flex gap-2 w-full sm:w-auto justify-end">
+                <div className="flex gap-2 w-full sm:w-auto justify-end flex-wrap">
                   <button
                     type="button"
                     disabled={isSubmittingMed}
                     onClick={() => { setShowAddMedModal(false); setEditingMed(null); }}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg border border-gray-300 font-semibold cursor-pointer text-xs disabled:opacity-50"
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-3.5 rounded-lg border border-gray-300 font-semibold cursor-pointer text-xs disabled:opacity-50"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSubmittingMed}
+                    onClick={(e) => handleCreateMedicineSubmit(e, true)}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 py-2 px-4 rounded-lg font-bold shadow-xs transition-all cursor-pointer text-xs flex items-center gap-1.5"
+                    title="Save current item and preserve unit, category, subcategory, prices, batch number, and expiry date for adding the next item"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Save &amp; Add Another Item</span>
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmittingMed}
                     className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white py-2 px-5 rounded-lg font-bold shadow-md transition-all cursor-pointer text-xs flex items-center gap-1.5"
+                    title="Save item and close modal (all specifications remain saved for the next add)"
                   >
                     {isSubmittingMed ? (
                       <>
@@ -6042,7 +6202,7 @@ export default function InventoryManager({
                         <span>Saving Record...</span>
                       </>
                     ) : (
-                      <span>Save Catalog Record</span>
+                      <span>Save &amp; Close</span>
                     )}
                   </button>
                 </div>
@@ -6123,54 +6283,22 @@ export default function InventoryManager({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-gray-700 block text-[11px]">Store Qty (units)</label>
+                  <label className="font-bold text-gray-700 block text-[11px]">Stock Quantity (units)</label>
                   <input
                     type="number"
                     required
                     min="0"
-                    value={editingBatch.storeQuantity !== undefined ? editingBatch.storeQuantity : editingBatch.quantity}
-                    onChange={(e) => {
-                      const sq = Number(e.target.value);
-                      const dq = editingBatch.dispensaryQuantity !== undefined ? editingBatch.dispensaryQuantity : 0;
-                      setEditingBatch({
-                        ...editingBatch,
-                        storeQuantity: sq,
-                        quantity: sq + dq
-                      });
-                    }}
-                    className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono font-bold"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-gray-700 block text-[11px]">Dispensary Qty (units)</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    value={editingBatch.dispensaryQuantity !== undefined ? editingBatch.dispensaryQuantity : 0}
-                    onChange={(e) => {
-                      const dq = Number(e.target.value);
-                      const sq = editingBatch.storeQuantity !== undefined ? editingBatch.storeQuantity : editingBatch.quantity;
-                      setEditingBatch({
-                        ...editingBatch,
-                        dispensaryQuantity: dq,
-                        quantity: sq + dq
-                      });
-                    }}
-                    className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono font-bold"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-gray-700 block text-[11px]">Total Stock (Calculated)</label>
-                  <input
-                    type="number"
-                    disabled
-                    readOnly
                     value={editingBatch.quantity}
-                    className="w-full bg-gray-100 border border-gray-300 rounded p-2 outline-none text-gray-500 font-mono font-bold"
+                    onChange={(e) => {
+                      const q = Math.max(0, Number(e.target.value));
+                      setEditingBatch({
+                        ...editingBatch,
+                        quantity: q,
+                        storeQuantity: q,
+                        dispensaryQuantity: 0
+                      });
+                    }}
+                    className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono font-bold"
                   />
                   <div className="flex items-center gap-1.5 mt-1">
                     <input
@@ -6181,18 +6309,24 @@ export default function InventoryManager({
                       className="rounded border-gray-300 text-emerald-600 bg-white cursor-pointer h-3.5 w-3.5"
                     />
                     <label htmlFor="apply-qty-to-all" className="text-[10px] text-gray-500 font-bold cursor-pointer select-none">
-                      Apply qty & split to all batches
+                      Apply qty to all batches
                     </label>
                   </div>
                 </div>
                 <div className="space-y-1">
                   <label className="font-bold text-gray-700 block text-[11px]">Buying Unit Cost (ETB)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     required
-                    min="1"
+                    placeholder="e.g. 80.50"
                     value={editingBatch.buyingPrice}
-                    onChange={(e) => setEditingBatch({ ...editingBatch, buyingPrice: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setEditingBatch({ ...editingBatch, buyingPrice: val as any });
+                      }
+                    }}
                     className="w-full bg-white border border-gray-300 rounded p-2 outline-none text-gray-800 font-mono"
                   />
                   <div className="flex items-center gap-1.5 mt-1">
@@ -6788,95 +6922,6 @@ export default function InventoryManager({
         </div>
       )}
 
-      {/* Modal: Store to Dispensary Transfer */}
-      {selectedTransferStockItem && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-150 text-xs text-gray-800">
-            <div className="flex items-center justify-between border-b pb-3 mb-4">
-              <h3 className="text-sm font-black text-gray-950 uppercase tracking-wider flex items-center gap-1.5">
-                <ArrowDownRight className="h-4.5 w-4.5 text-emerald-600" />
-                Store to Dispensary Transfer
-              </h3>
-              <button 
-                onClick={() => setSelectedTransferStockItem(null)}
-                className="text-gray-400 hover:text-gray-600 p-1 bg-gray-100 hover:bg-gray-200 rounded cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleTransferToDispSubmit} className="space-y-4">
-              <div className="bg-gray-50 rounded-lg p-3.5 border border-gray-150 text-xs font-medium space-y-1.5">
-                <div>
-                  <span className="text-gray-400 font-bold uppercase text-[9px] block">Product Name</span>
-                  <span className="text-gray-900 font-bold">
-                    {medicines.find(m => m.id === selectedTransferStockItem.medicineId)?.name || 'Unknown Item'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t">
-                  <div>
-                    <span className="text-gray-400 font-bold uppercase text-[9px] block">Batch Number</span>
-                    <span className="text-gray-900 font-mono font-bold">{selectedTransferStockItem.batchNumber}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 font-bold uppercase text-[9px] block">Expiry Date</span>
-                    <span className="text-gray-900 font-mono font-bold">{selectedTransferStockItem.expiryDate || 'N/A'}</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t">
-                  <div>
-                    <span className="text-gray-400 font-bold uppercase text-[9px] block">Store Stock (Available)</span>
-                    <span className="text-emerald-700 font-mono font-extrabold text-[13px]">
-                      {selectedTransferStockItem.storeQuantity !== undefined ? selectedTransferStockItem.storeQuantity : selectedTransferStockItem.quantity} units
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 font-bold uppercase text-[9px] block">Dispensary Stock</span>
-                    <span className="text-indigo-600 font-mono font-extrabold text-[13px]">
-                      {selectedTransferStockItem.dispensaryQuantity !== undefined ? selectedTransferStockItem.dispensaryQuantity : 0} units
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-gray-700 block font-bold">Quantity to Transfer from Store to Dispensary:</label>
-                <input
-                  type="number"
-                  min="1"
-                  max={selectedTransferStockItem.storeQuantity !== undefined ? selectedTransferStockItem.storeQuantity : selectedTransferStockItem.quantity}
-                  value={transferToDispQty || ''}
-                  onChange={(e) => setTransferToDispQty(Math.min(
-                    selectedTransferStockItem.storeQuantity !== undefined ? selectedTransferStockItem.storeQuantity : selectedTransferStockItem.quantity,
-                    Math.max(1, Number(e.target.value))
-                  ))}
-                  required
-                  className="w-full bg-white border border-gray-350 p-2.5 rounded-lg outline-none font-bold text-gray-800 text-xs focus:border-indigo-500 shadow-sm"
-                  placeholder={`Enter quantity (max: ${selectedTransferStockItem.storeQuantity !== undefined ? selectedTransferStockItem.storeQuantity : selectedTransferStockItem.quantity})`}
-                />
-              </div>
-
-              <div className="pt-3 border-t flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedTransferStockItem(null)}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isTransferringToDisp}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-all shadow-md flex items-center gap-1 cursor-pointer disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  {isTransferringToDisp ? 'Transferring...' : 'Complete Transfer'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Modal: Bulk Transfer of stock */}
       {showBulkTransferModal && (
         <div className="fixed inset-0 bg-black/55 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -7202,6 +7247,23 @@ export default function InventoryManager({
           </div>
         </div>
       )}
+
+      {/* Smart Inventory Scanner & Purchase Invoice OCR Modal */}
+      <ScanItemsModal
+        isOpen={showScanModal}
+        onClose={() => setShowScanModal(false)}
+        currentUser={currentUser}
+        branches={branchesList}
+        activeBranchId={branchId}
+        suppliers={suppliers}
+        categories={categories}
+        initialMode={scanModalMode}
+        autoStartCamera={scanModalMode === 'camera'}
+        onImportComplete={(count) => {
+          onDataChanged();
+          showToast(`✨ Successfully imported ${count} items from photo/invoice!`);
+        }}
+      />
 
     </div>
   );

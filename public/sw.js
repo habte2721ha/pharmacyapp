@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sonan-pharmacy-v2';
+const CACHE_NAME = 'sonan-pharmacy-v3';
 
 // Static assets to precache on installation
 const PRECACHE_ASSETS = [
@@ -40,14 +40,18 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Ignore non-GET, chrome-extension, and API endpoints (handled in app via offlineManager)
+  // Ignore non-GET, chrome-extension, API endpoints, Vite dev-server files, and node_modules
   if (
     event.request.method !== 'GET' ||
     !url.protocol.startsWith('http') ||
     url.pathname.startsWith('/api/') ||
-    url.pathname.startsWith('/@vite') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
     url.pathname.includes('hot-update') ||
-    url.pathname.includes('/sockjs-node')
+    url.pathname.includes('/sockjs-node') ||
+    url.searchParams.has('v') ||
+    url.searchParams.has('t')
   ) {
     return;
   }

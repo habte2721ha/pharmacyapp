@@ -2,7 +2,7 @@ import express from 'express';
 import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { loadDb, saveDb, validateAndRestoreDb, isSimilarName, getDbHealthStats } from './src/server/db.ts';
 import { processVoiceCommand } from './src/server/voiceAssistantService.ts';
 import { 
@@ -266,8 +266,8 @@ async function startServer() {
     }
 
     const now = Date.now();
-    const windowMs = 60000;
-    const maxAttempts = 30;
+    const windowMs = 5 * 60000; // 5 minute lock
+    const maxAttempts = 3;
 
     const current = loginLimitMap.get(ip) || { count: 0, firstAccess: now };
     if (now - current.firstAccess > windowMs) {
@@ -277,9 +277,9 @@ async function startServer() {
 
     current.count++;
     if (current.count > maxAttempts) {
-      console.warn(`[SECURITY LOCKDOWN] Excessive login attempts detected from IP: ${ip}`);
+      console.warn(`[SECURITY RESTRICTION] Login attempts limit exceeded (more than 3 attempts) from IP: ${ip}`);
       return res.status(429).json({
-        error: 'Security Lockdown: Excessive authentication attempts. System temporarily protected. Please wait 60 seconds.'
+        error: 'Security Restriction: You have tried to log in more than 3 times. Access is temporarily restricted. Please wait 5 minutes before trying again or contact your administrator.'
       });
     }
 
@@ -1046,41 +1046,48 @@ async function startServer() {
     // DEVICE RECOGNITION SECURITY PROTOCOL
     const targetDevice = deviceId || 'unknown_device';
     
-    // Check if device has been explicitly deactivated
+    // Check if device has been explicitly deactivated or restricted
     if (user.deactivatedDevices && user.deactivatedDevices.includes(targetDevice)) {
-      return res.status(403).json({ error: 'This device has been deactivated. Access from this device is restricted. Please contact your system administrator.' });
+      return res.status(403).json({ 
+        restricted: true,
+        error: 'Access restricted: This device has exceeded the maximum verification attempts and has been restricted. Please contact your system administrator in the Security Panel to unblock access.' 
+      });
     }
 
     const authorizedDevices = user.recognizedDevices || [];
     
-    // NEVER ASK OTP FOR ADMIN: Admin and Super Administrator always bypass OTP verification
+    // Check if user is Super Admin / Admin
     const isAdminUser = user.role === UserRole.SUPER_ADMIN || 
                         user.role === UserRole.AUDITOR ||
                         String(user.role).toLowerCase().includes('admin') ||
                         user.username?.toLowerCase() === 'admin' || 
                         user.username?.toLowerCase() === 'superadmin';
 
-    // Require OTP ONLY if user is NOT an administrator AND Two-Factor Authentication (2FA) is explicitly enabled
-    const requiresOtp = !isAdminUser && user.twoFactorEnabled === true;
+    // Require OTP if user is attempting login from a NEW (unrecognized) device, OR if Two-Factor Authentication (2FA) is enabled
+    const isNewDevice = !authorizedDevices.includes(targetDevice);
+    const requiresOtp = (!isAdminUser && isNewDevice) || (user.twoFactorEnabled === true && isNewDevice);
     
     if (requiresOtp) {
       // Generate 6-digit OTP
       const deviceOtp = Math.floor(100000 + Math.random() * 900000).toString();
       
-      // Store in memory & DB
+      // Store in memory & DB with attempt tracking (max 3 attempts allowed)
       user.recognizedDevices = authorizedDevices; // initialize if blank
       user.pendingDeviceOtp = { 
         code: deviceOtp, 
-        deviceId: targetDevice, 
+        deviceId: targetDevice,
+        attempts: 0,
+        maxAttempts: 3,
+        createdAt: new Date().toISOString(),
         expiry: new Date(Date.now() + 15 * 60 * 1000).toISOString() 
       };
       
-      // Create a high-visibility System Security Note so the Admin PC reads the OTP instantly
+      // Create a high-visibility System Security Note so the Admin PC reads the OTP instantly in Security Panel
       if (!db.pharmacyNotes) db.pharmacyNotes = [];
       
       const otpNote = {
         id: 'sec_' + Date.now(),
-        text: `SECURITY ALERT: User "${user.username}" is attempting to log in. ${user.twoFactorEnabled ? 'Two-Factor (2FA) OTP' : 'Device unauthorized OTP'} triggered. Code: ${deviceOtp}. Sent to Email: ${user.email} & Phone: ${user.phone || 'Not Provided'}.`,
+        text: `SECURITY ALERT: User "${user.name || user.username}" (${user.username}, Role: ${user.role}) is attempting to log in from a NEW DEVICE ("${targetDevice}"). Device Verification Code: ${deviceOtp}. Please provide this code or authorize the device directly in the Security Panel. Notice: Entering incorrect code more than 3 times will restrict this device.`,
         authorName: 'System Security Audit',
         role: 'SUPER_ADMIN',
         date: new Date().toISOString().split('T')[0],
@@ -1095,17 +1102,19 @@ async function startServer() {
         db,
         user.email || 'admin@enterprisepharmacy.com',
         'SECURITY NOTICE: One-Time Password (OTP) Dispatched',
-        `Dear ${user.name || user.username},\n\nWe have generated a One-Time Verification Code for your login request.\n\nOTP Code: ${deviceOtp}\nTarget Device: ${targetDevice}\nAuthorized Role: ${user.role}\n\nIf you did not initiate this request, please report this incident to the IT Security administrator immediately.`
+        `Dear ${user.name || user.username},\n\nWe have generated a One-Time Verification Code for your login request from a new device.\n\nOTP Code: ${deviceOtp}\nTarget Device: ${targetDevice}\nAuthorized Role: ${user.role}\n\nIf you did not initiate this request, please report this incident to the IT Security administrator immediately.`
       );
 
       saveDb(db);
  
-      console.log(`[DEVICE OTP DISPATCH] Login OTP Code for ${user.username} on device ${targetDevice}: ${deviceOtp} sent to ${user.email} & phone: ${user.phone || 'None'}`);
+      console.log(`[DEVICE OTP DISPATCH] Login OTP Code for ${user.username} on new device ${targetDevice}: ${deviceOtp}`);
  
       return res.json({
         requiresDeviceOtp: true,
+        isNewDevice: true,
         deviceId: targetDevice,
         userId: user.id,
+        attemptsRemaining: 3,
         otpSentTo: {
           email: user.email,
           phone: user.phone || 'Not provided'
@@ -1184,6 +1193,16 @@ async function startServer() {
       return res.status(404).json({ error: 'User account not found.' });
     }
 
+    const targetDevice = deviceId || 'unknown_device';
+
+    // Check if device is already deactivated or restricted
+    if (user.deactivatedDevices && user.deactivatedDevices.includes(targetDevice)) {
+      return res.status(403).json({ 
+        restricted: true, 
+        error: 'Access restricted: This device has exceeded the maximum of 3 verification attempts and has been blocked. Please contact your system administrator in the Security Control panel to unblock or authorize this device.' 
+      });
+    }
+
     const pending = user.pendingDeviceOtp;
     if (!pending) {
       return res.status(400).json({ error: 'No active device OTP request found. Please retry logging in.' });
@@ -1191,14 +1210,54 @@ async function startServer() {
 
     // Verify code: bypass/admin backdoors allowed are "123456" for testing ONLY for SUPER_ADMIN, otherwise matching exact code
     const isAdmin = user.role === UserRole.SUPER_ADMIN || user.username === 'admin';
-    if (code !== pending.code && (!isAdmin || code !== '123456')) {
-      return res.status(400).json({ error: 'Invalid device verification OTP code.' });
+    const isCodeValid = (code === pending.code) || (isAdmin && code === '123456');
+
+    if (!isCodeValid) {
+      pending.attempts = (pending.attempts || 0) + 1;
+      const remainingAttempts = Math.max(0, 3 - pending.attempts);
+
+      if (pending.attempts >= 3) {
+        // Restrict device access permanently until administrator unblocks!
+        if (!user.deactivatedDevices) user.deactivatedDevices = [];
+        if (!user.deactivatedDevices.includes(targetDevice)) {
+          user.deactivatedDevices.push(targetDevice);
+        }
+        delete user.pendingDeviceOtp;
+
+        if (!db.pharmacyNotes) db.pharmacyNotes = [];
+        const restrictionAlert = {
+          id: 'sec_lock_' + Date.now(),
+          text: `🚨 CRITICAL SECURITY RESTRICTION: Device "${targetDevice}" for user "${user.username}" (${user.name}) has been automatically RESTRICTED after 3 consecutive failed verification attempts. Access is locked until an administrator re-activates or authorizes it in the Security Panel.`,
+          authorName: 'System Security Audit',
+          role: 'SUPER_ADMIN',
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toTimeString().split(' ')[0].substring(0, 5),
+          color: 'red'
+        };
+        db.pharmacyNotes.unshift(restrictionAlert);
+
+        saveDb(db);
+
+        return res.status(403).json({ 
+          restricted: true,
+          error: 'Security Restriction: You have exceeded the maximum of 3 verification attempts. This device has been restricted. Please contact your system administrator to unblock.' 
+        });
+      }
+
+      saveDb(db);
+      return res.status(400).json({ 
+        remainingAttempts,
+        error: `Invalid verification code. ${remainingAttempts} attempt${remainingAttempts === 1 ? '' : 's'} remaining before this device is restricted.` 
+      });
     }
 
     // Authorize device permanently!
     if (!user.recognizedDevices) user.recognizedDevices = [];
-    if (!user.recognizedDevices.includes(deviceId)) {
-      user.recognizedDevices.push(deviceId);
+    if (!user.recognizedDevices.includes(targetDevice)) {
+      user.recognizedDevices.push(targetDevice);
+    }
+    if (user.deactivatedDevices) {
+      user.deactivatedDevices = user.deactivatedDevices.filter(d => d !== targetDevice);
     }
     user.hasLoggedInBefore = true;
     
@@ -1207,7 +1266,7 @@ async function startServer() {
 
     // Auto-record staff attendance upon login
     const reqIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
-    recordStaffLoginAttendance(db, user, deviceId, reqIp);
+    recordStaffLoginAttendance(db, user, targetDevice, reqIp);
 
     saveDb(db);
 
@@ -3474,8 +3533,11 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     // If batch information is provided, create/update the stock record
     const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin', name: 'Admin' };
 
-    if (batchNumber || storeQuantity !== undefined || dispensaryQuantity !== undefined) {
-      const bQty = (Number(storeQuantity) || 0) + (Number(dispensaryQuantity) || 0);
+    if (batchNumber || storeQuantity !== undefined || dispensaryQuantity !== undefined || req.body.quantity !== undefined || req.body.totalQuantity !== undefined) {
+      const rawQty = req.body.quantity !== undefined ? Number(req.body.quantity) :
+                     (req.body.totalQuantity !== undefined ? Number(req.body.totalQuantity) :
+                     (storeQuantity !== undefined ? Number(storeQuantity) : (Number(dispensaryQuantity) || 0)));
+      const bQty = Math.max(0, rawQty);
       
       if (isNewMedSplit && newMedSplitFirstQty !== undefined) {
         const firstQty = Number(newMedSplitFirstQty) || 0;
@@ -3493,7 +3555,8 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
 
         if (existingBatch1) {
           existingBatch1.quantity += firstQty;
-          existingBatch1.storeQuantity = (existingBatch1.storeQuantity || 0) + firstQty;
+          existingBatch1.storeQuantity = existingBatch1.quantity;
+          existingBatch1.dispensaryQuantity = 0;
           if (existingBatch1.originalQuantity !== undefined) {
             existingBatch1.originalQuantity += firstQty;
           }
@@ -3548,7 +3611,8 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
 
           if (existingBatch2) {
             existingBatch2.quantity += remainderQty;
-            existingBatch2.storeQuantity = (existingBatch2.storeQuantity || 0) + remainderQty;
+            existingBatch2.storeQuantity = existingBatch2.quantity;
+            existingBatch2.dispensaryQuantity = 0;
             if (existingBatch2.originalQuantity !== undefined) {
               existingBatch2.originalQuantity += remainderQty;
             }
@@ -3606,8 +3670,8 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
 
         if (existingBatch) {
           existingBatch.quantity += bQty;
-          existingBatch.storeQuantity = (existingBatch.storeQuantity || 0) + (Number(storeQuantity) || bQty);
-          existingBatch.dispensaryQuantity = (existingBatch.dispensaryQuantity || 0) + (Number(dispensaryQuantity) || 0);
+          existingBatch.storeQuantity = existingBatch.quantity;
+          existingBatch.dispensaryQuantity = 0;
           if (existingBatch.originalQuantity !== undefined) {
             existingBatch.originalQuantity += bQty;
           }
@@ -3626,8 +3690,8 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
             buyingPrice: Number(buyingPrice || targetMedicine.buyingPrice),
             supplierId: supplierId || targetMedicine.supplierId || 's1',
             isDamaged: false,
-            storeQuantity: Number(storeQuantity) || bQty,
-            dispensaryQuantity: Number(dispensaryQuantity) || 0,
+            storeQuantity: bQty,
+            dispensaryQuantity: 0,
             originalQuantity: bQty,
             createdAt: new Date().toISOString().split('T')[0],
             purchaseInvoiceNumber: targetInvoiceNum || undefined
@@ -4008,7 +4072,12 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
         profitMargin: 30,
         useMarginPricing: true,
         isPrescriptionRequired: false,
-        rememberDefaults: true
+        rememberDefaults: true,
+        buyingPrice: 70,
+        price: 100,
+        batchNumber: '',
+        expiryDate: '',
+        purchaseInvoiceNumber: ''
       },
       customUnits: db.customUnits || [],
       templatesCount: db.itemMasterTemplates?.length || 0,
@@ -4480,6 +4549,446 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     }
   });
 
+  // AI-powered scan endpoint for medicine photo or purchase invoice
+  app.post('/api/ai/scan-items', async (req, res) => {
+    const scanType = req.body?.scanType || 'auto';
+    try {
+      const { image, mimeType = 'image/jpeg', customNotes = '' } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: 'Image data is required.' });
+      }
+
+      // Strip Data URL prefix if present
+      let cleanBase64 = image;
+      let actualMime = mimeType;
+      if (typeof image === 'string' && image.startsWith('data:')) {
+        const parts = image.split(';base64,');
+        actualMime = parts[0].replace('data:', '') || mimeType;
+        cleanBase64 = parts[1] || image;
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({
+          error: 'GEMINI_API_KEY is not configured on the server. Please ensure the API key is active to enable AI image and invoice scanning.'
+        });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build'
+          }
+        }
+      });
+
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          documentType: { 
+            type: Type.STRING,
+            description: "Either 'purchase_invoice', 'product_photo', or 'receipt'" 
+          },
+          invoiceNumber: { 
+            type: Type.STRING,
+            description: "Invoice or receipt number if visible, otherwise empty string" 
+          },
+          invoiceDate: { 
+            type: Type.STRING,
+            description: "Date on invoice in YYYY-MM-DD format if visible" 
+          },
+          supplierName: { 
+            type: Type.STRING,
+            description: "Supplier or vendor or pharmaceutical distributor company name if visible" 
+          },
+          totalAmount: { 
+            type: Type.NUMBER,
+            description: "Total invoice amount in ETB if printed, otherwise 0" 
+          },
+          notes: { 
+            type: Type.STRING,
+            description: "Any extra clinical or purchase notes extracted" 
+          },
+          items: {
+            type: Type.ARRAY,
+            description: "List of all distinct medicine or product items detected",
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { 
+                  type: Type.STRING,
+                  description: "Trade or brand product name with strength/form (e.g. 'Amoxicillin 500mg')" 
+                },
+                genericName: { 
+                  type: Type.STRING,
+                  description: "Active pharmacological generic chemical name" 
+                },
+                category: { 
+                  type: Type.STRING,
+                  description: "Clinical category e.g. Antibiotics, Analgesics & Pain, Cardiovascular, Gastrointestinal, Respiratory, Vitamins, Cosmetics & Skincare, etc." 
+                },
+                unit: { 
+                  type: Type.STRING,
+                  description: "Packaging unit e.g. Piece (PCS), Box, Strip, Bottle, Vials, Tube, Blister, Ampoule" 
+                },
+                batchNumber: { 
+                  type: Type.STRING,
+                  description: "Batch or Lot number if printed or visible, e.g. 'B2401'" 
+                },
+                expiryDate: { 
+                  type: Type.STRING,
+                  description: "Expiry date in YYYY-MM-DD format" 
+                },
+                quantity: { 
+                  type: Type.NUMBER,
+                  description: "Number of units, packs, or boxes" 
+                },
+                buyingPrice: { 
+                  type: Type.NUMBER,
+                  description: "Unit purchase price or cost in ETB (Ethiopian Birr) if on invoice, otherwise realistic estimate or 0" 
+                },
+                price: { 
+                  type: Type.NUMBER,
+                  description: "Selling or retail price in ETB (if not visible, calculate 25-35% profit margin above buying price)" 
+                },
+                minStockLevel: { 
+                  type: Type.NUMBER,
+                  description: "Recommended min stock threshold, default 10" 
+                },
+                description: { 
+                  type: Type.STRING,
+                  description: "Dosage form, packaging specification, or brief description" 
+                },
+                productType: { 
+                  type: Type.STRING,
+                  description: "'medicine' or 'cosmetics'" 
+                },
+                isPrescriptionRequired: { 
+                  type: Type.BOOLEAN,
+                  description: "True if prescription medicine (Rx), false if OTC or cosmetics" 
+                },
+                barcode: { 
+                  type: Type.STRING,
+                  description: "Barcode number if visible" 
+                }
+              },
+              required: ["name", "quantity"]
+            }
+          }
+        },
+        required: ["items"]
+      };
+
+      const promptText = `Examine this image carefully.
+It is either:
+1) A photograph of pharmaceutical medicine boxes, bottles, blister packs, ampoules, vials, or cosmetic products.
+2) A purchase invoice, supplier bill, delivery receipt, or goods received voucher from a pharmaceutical wholesaler or distributor.
+
+CRITICAL INSTRUCTION FOR PURCHASE INVOICES:
+- YOU MUST EXTRACT EVERY SINGLE ROW AND ITEM LISTED ON THIS INVOICE.
+- Do NOT stop after 1 or 2 items. If there are 5, 10, 20 or more line items on the invoice table, EXTRACT EVERY SINGLE ONE of them into the "items" array!
+- For EVERY item, extract:
+  * Brand / Trade Name
+  * Generic chemical name & strength (e.g. Paracetamol 500mg, Amoxicillin 250mg/5ml)
+  * Batch / Lot number (if not explicitly given, derive from invoice or row)
+  * Expiry Date (convert MM/YY, MM/YYYY, or DD/MM/YYYY to ISO format YYYY-MM-DD)
+  * Quantity purchased (number of packs, boxes, strips, bottles, or units)
+  * Packaging Unit (Piece (PCS), Box, Strip, Bottle, Vial, Ampoule, Blister Pack, etc.)
+  * Unit Buying Price (ETB)
+  * Calculate appropriate Selling Price (ETB) with standard 25%-35% markup if not specified
+  * Clinical category (Antibiotics, Analgesics, Cardiovascular, Gastrointestinal, etc.)
+- Also extract:
+  * Supplier / Distributor Company Name
+  * Specific Invoice Number / Bill # (e.g. INV-10492)
+  * Invoice Date (YYYY-MM-DD)
+  * Total invoice amount in ETB
+  * Payment terms or credit terms (e.g. "Net 30", "Cash", "Credit", "Due in 15 days")
+- If this is a photo of medicine boxes, read every visible medicine box packaging in the image and extract all distinct products.
+${customNotes ? `Additional user notes: ${customNotes}` : ''}`;
+
+      const imagePart = {
+        inlineData: {
+          mimeType: actualMime,
+          data: cleanBase64
+        }
+      };
+
+      // Model candidate list prioritizing the fast, reliable multimodal model gemini-2.5-flash
+      const candidateModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.8-flash'];
+      let lastAiError: any = null;
+      let jsonText: string | null = null;
+
+      for (const modelName of candidateModels) {
+        try {
+          console.log(`[AI OCR] Attempting extraction with model: ${modelName}`);
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: { parts: [imagePart, { text: promptText }] },
+            config: {
+              systemInstruction: "You are a professional clinical pharmacy OCR and inventory document analyzer. You accurately read pharmacy packaging labels and pharmaceutical invoices, converting them into clean structured inventory data.",
+              responseMimeType: 'application/json',
+              responseSchema: responseSchema
+            }
+          });
+
+          if (response.text) {
+            jsonText = response.text;
+            console.log(`[AI OCR] Successfully extracted items using model: ${modelName}`);
+            break;
+          }
+        } catch (mErr: any) {
+          console.warn(`[AI OCR] Model ${modelName} returned error:`, mErr?.message || mErr?.status || mErr);
+          lastAiError = mErr;
+          // Continue to next model in candidate list
+        }
+      }
+
+      if (!jsonText) {
+        throw lastAiError || new Error('All vision models failed to return structured extraction.');
+      }
+
+      const parsedData = JSON.parse(jsonText);
+      return res.status(200).json({
+        success: true,
+        ...parsedData
+      });
+    } catch (err: any) {
+      console.error('Error in /api/ai/scan-items:', err);
+      const errMsg = err?.message || err?.toString() || '';
+      
+      return res.status(500).json({ 
+        error: 'Failed to scan image: ' + (errMsg || 'AI service unavailable. Please check your image or enter items manually.'),
+        details: err.toString()
+      });
+    }
+  });
+
+  // Bulk import items from scan or invoice into catalog and inventory
+  app.post('/api/inventory/bulk-import-items', (req, res) => {
+    try {
+      const {
+        items,
+        supplierId,
+        supplierName,
+        branchId = 'b1',
+        purchaseInvoiceNumber,
+        invoiceDate,
+        operatorId,
+        createPurchaseOrder = false,
+        isCreditPurchase = false,
+        dueDate,
+        paymentTerms = 'Net 30'
+      } = req.body;
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'No items provided for import.' });
+      }
+
+      const db = loadDb();
+      const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin', name: 'Admin' };
+      const targetBranch = branchId || 'b1';
+      const targetBranchObj = db.branches?.find(b => b.id === targetBranch) || { id: targetBranch, name: 'Main Branch' };
+      
+      // Find or register supplier
+      let targetSupplier = db.suppliers?.find(s => s.id === supplierId || (supplierName && s.name.toLowerCase() === supplierName.toLowerCase())) || db.suppliers?.[0];
+      if (!targetSupplier && supplierName) {
+        targetSupplier = {
+          id: generateId('sup'),
+          name: supplierName.trim(),
+          phone: '',
+          email: '',
+          address: 'Verified Wholesale Supplier',
+          balance: 0
+        };
+        if (!db.suppliers) db.suppliers = [];
+        db.suppliers.push(targetSupplier);
+      } else if (!targetSupplier) {
+        targetSupplier = { id: 's1', name: 'Standard Supplier', phone: '', email: '', address: '', balance: 0 };
+      }
+
+      const importedMedicines: any[] = [];
+      const poItems: any[] = [];
+
+      for (const item of items) {
+        if (!item.name || !item.name.trim()) continue;
+
+        const itemName = item.name.trim();
+        const buyingPriceVal = Number(item.buyingPrice) || 0;
+        let sellingPriceVal = Number(item.price);
+        if (!sellingPriceVal || sellingPriceVal <= buyingPriceVal) {
+          sellingPriceVal = buyingPriceVal > 0 ? Math.round(buyingPriceVal * 1.3) : 100;
+        }
+        const itemQty = Math.max(1, Number(item.quantity) || 1);
+        const itemBatch = (item.batchNumber || '').trim() || `B-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 100)}`;
+        const itemExpiry = (item.expiryDate || '').trim() || getRelativeDateStr(365);
+        const itemUnit = item.unit || 'Piece (PCS)';
+        const itemCategory = item.category || 'General';
+        const itemProductType = item.productType || 'medicine';
+
+        // Find existing medicine by similar name
+        let med = db.medicines.find(m => isSimilarName(m.name, itemName));
+        if (!med) {
+          med = {
+            id: generateId('m'),
+            name: itemName,
+            genericName: item.genericName || itemName,
+            barcode: item.barcode || `BAR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            sku: `SKU-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 100)}`,
+            category: itemCategory,
+            subCategory: item.subCategory || '',
+            price: sellingPriceVal,
+            buyingPrice: buyingPriceVal,
+            isPrescriptionRequired: item.isPrescriptionRequired !== undefined ? !!item.isPrescriptionRequired : false,
+            unit: itemUnit,
+            minStockLevel: Number(item.minStockLevel) || 10,
+            description: item.description || '',
+            productType: itemProductType,
+            imageUrl: item.imageUrl || '',
+            profitMargin: buyingPriceVal > 0 ? Math.round(((sellingPriceVal - buyingPriceVal) / buyingPriceVal) * 100) : 30,
+            useMarginPricing: true,
+            purchaseInvoiceNumber: item.purchaseInvoiceNumber || purchaseInvoiceNumber || undefined,
+            supplierId: supplierId || targetSupplier.id
+          };
+          db.medicines.push(med);
+        } else {
+          if (item.genericName && !med.genericName) med.genericName = item.genericName;
+          if (sellingPriceVal > 0) med.price = sellingPriceVal;
+          if (buyingPriceVal > 0) med.buyingPrice = buyingPriceVal;
+          if (itemCategory) med.category = itemCategory;
+        }
+
+        // Add Stock Item batch
+        const itemBranch = item.branchId || targetBranch;
+        const existingBatch = db.stockItems.find(st =>
+          st.medicineId === med.id &&
+          st.branchId === itemBranch &&
+          (st.batchNumber || '').trim().toLowerCase() === itemBatch.toLowerCase()
+        );
+
+        if (existingBatch) {
+          existingBatch.quantity += itemQty;
+          existingBatch.storeQuantity = (existingBatch.storeQuantity || 0) + itemQty;
+          if (existingBatch.originalQuantity !== undefined) existingBatch.originalQuantity += itemQty;
+          if (itemExpiry) existingBatch.expiryDate = itemExpiry;
+          if (buyingPriceVal > 0) existingBatch.buyingPrice = buyingPriceVal;
+          if (purchaseInvoiceNumber || item.purchaseInvoiceNumber) {
+            (existingBatch as any).purchaseInvoiceNumber = item.purchaseInvoiceNumber || purchaseInvoiceNumber;
+          }
+        } else {
+          const newStock: StockItem & { purchaseInvoiceNumber?: string } = {
+            id: generateId('st'),
+            medicineId: med.id,
+            branchId: itemBranch,
+            batchNumber: itemBatch,
+            expiryDate: itemExpiry,
+            quantity: itemQty,
+            buyingPrice: buyingPriceVal || Number(med.buyingPrice) || 0,
+            supplierId: supplierId || targetSupplier.id,
+            isDamaged: false,
+            storeQuantity: itemQty,
+            dispensaryQuantity: 0,
+            originalQuantity: itemQty,
+            createdAt: new Date().toISOString().split('T')[0],
+            purchaseInvoiceNumber: item.purchaseInvoiceNumber || purchaseInvoiceNumber || undefined
+          };
+          db.stockItems.push(newStock);
+        }
+
+        // Add bin card physical ledger entry
+        addBinCardEntry(
+          db,
+          itemBranch,
+          med.id,
+          'Purchase',
+          itemBatch,
+          purchaseInvoiceNumber || item.purchaseInvoiceNumber || undefined,
+          userObj.name || userObj.username,
+          itemQty,
+          0,
+          itemBatch,
+          itemExpiry,
+          `Scanned invoice / photo item import: ${itemName}`,
+          { supplierId: supplierId || targetSupplier.id }
+        );
+
+        syncMedicineWithLastBatch(db, med.id);
+        importedMedicines.push({ medicine: med, quantity: itemQty, batchNumber: itemBatch, expiryDate: itemExpiry });
+
+        poItems.push({
+          id: generateId('poi'),
+          medicineId: med.id,
+          medicineName: med.name,
+          quantity: itemQty,
+          unitPrice: buyingPriceVal,
+          total: itemQty * buyingPriceVal
+        });
+      }
+
+      // If user requested PO creation or it's a credit purchase
+      if ((createPurchaseOrder || isCreditPurchase) && poItems.length > 0) {
+        const poTotal = poItems.reduce((acc, i) => acc + i.total, 0);
+        const invDateStr = invoiceDate || new Date().toISOString().split('T')[0];
+        const newPO: PurchaseOrder = {
+          id: generateId('po'),
+          poNumber: purchaseInvoiceNumber ? `PO-INV-${purchaseInvoiceNumber}` : `PO-${Date.now().toString().slice(-6)}`,
+          supplierId: supplierId || targetSupplier.id,
+          supplierName: supplierName || targetSupplier.name,
+          branchId: targetBranch,
+          branchName: targetBranchObj.name,
+          date: invDateStr,
+          total: poTotal,
+          status: 'Received',
+          items: poItems,
+          receivedDate: invDateStr,
+          receivedBy: userObj.name || userObj.username
+        };
+        db.purchaseOrders.push(newPO);
+
+        // If purchased on credit, create Outbound Credit transaction and increase supplier balance
+        if (isCreditPurchase) {
+          const creditTx: SupplierTransaction = {
+            id: generateId('stx'),
+            supplierId: targetSupplier.id,
+            branchId: targetBranch,
+            date: invDateStr,
+            type: 'Purchase Credit',
+            amount: poTotal,
+            reference: purchaseInvoiceNumber ? `${purchaseInvoiceNumber}` : `PO-INV-${Date.now().toString().slice(-6)}`,
+            dueDate: dueDate || getRelativeDateStr(30),
+            notes: `Credit purchase invoice with ${importedMedicines.length} items (Invoice #${purchaseInvoiceNumber || 'N/A'})`,
+            paidAmount: 0,
+            paymentStatus: 'Pending',
+            paymentTerms: paymentTerms || 'Net 30'
+          };
+          if (!db.supplierTransactions) db.supplierTransactions = [];
+          db.supplierTransactions.push(creditTx);
+          targetSupplier.balance = (targetSupplier.balance || 0) + poTotal;
+        }
+      }
+
+      saveDb(db);
+      logActivity(
+        userObj.id,
+        userObj.username,
+        userObj.role,
+        'Bulk Scan Import',
+        targetBranch,
+        targetBranchObj.name,
+        `Imported ${importedMedicines.length} items from scanned photo/invoice (Invoice: ${purchaseInvoiceNumber || 'N/A'}).`
+      );
+
+      return res.status(200).json({
+        success: true,
+        importedCount: importedMedicines.length,
+        items: importedMedicines
+      });
+    } catch (err: any) {
+      console.error('Error in /api/inventory/bulk-import-items:', err);
+      return res.status(500).json({ error: 'Failed to import items: ' + (err.message || 'Unknown error') });
+    }
+  });
+
   // Bulk delete medicines/products endpoint
   app.post('/api/medicines/bulk-delete', (req, res) => {
     const { ids, scope = 'all', branchId, operatorId } = req.body;
@@ -4723,27 +5232,9 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     const originalStore = original.storeQuantity !== undefined ? original.storeQuantity : original.quantity;
     const originalDisp = original.dispensaryQuantity !== undefined ? original.dispensaryQuantity : 0;
 
-    const newStoreQty = storeQuantity !== undefined ? Number(storeQuantity) : originalStore;
-    const newDispQty = dispensaryQuantity !== undefined ? Number(dispensaryQuantity) : originalDisp;
-    
-    let finalStoreQty = newStoreQty;
-    let finalDispQty = newDispQty;
-    let newQty = quantity !== undefined ? Number(quantity) : (storeQuantity !== undefined || dispensaryQuantity !== undefined ? (newStoreQty + newDispQty) : original.quantity);
-
-    if (quantity !== undefined && storeQuantity === undefined && dispensaryQuantity === undefined) {
-      if (newQty === 0) {
-        finalStoreQty = 0;
-        finalDispQty = 0;
-      } else if (newQty >= originalDisp) {
-        finalStoreQty = newQty - originalDisp;
-        finalDispQty = originalDisp;
-      } else {
-        finalStoreQty = 0;
-        finalDispQty = newQty;
-      }
-    } else {
-      newQty = finalStoreQty + finalDispQty;
-    }
+    let newQty = quantity !== undefined ? Number(quantity) : (storeQuantity !== undefined ? Number(storeQuantity) : original.quantity);
+    let finalStoreQty = newQty;
+    let finalDispQty = 0;
     
     let finalNotes = notes !== undefined ? notes : db.stockItems[idx].notes || '';
     if (original.quantity !== newQty && editWho && editWhy) {
@@ -4914,7 +5405,7 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     const targetBatchNum = batchNumber || `B-${Date.now().toString().slice(-4)}`;
     const targetExpiry = expiryDate || (med.productType === 'cosmetics' ? '' : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const targetInvoice = invoiceNumber || purchaseInvoiceNumber || (med as any).purchaseInvoiceNumber || '';
-    const addQty = Number(quantity) || 0;
+    const addQty = Number(req.body.quantity !== undefined ? req.body.quantity : (req.body.totalQuantity !== undefined ? req.body.totalQuantity : req.body.storeQuantity)) || 0;
     const targetSupplier = supplierId || (med as any).supplierId || 's1';
 
     const existingBatch = db.stockItems.find(st => 
@@ -4927,12 +5418,12 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
 
     if (existingBatch) {
       existingBatch.quantity += addQty;
-      existingBatch.storeQuantity = (existingBatch.storeQuantity || 0) + (Number(storeQuantity) || addQty);
-      existingBatch.dispensaryQuantity = (existingBatch.dispensaryQuantity || 0) + (Number(dispensaryQuantity) || 0);
+      existingBatch.storeQuantity = existingBatch.quantity;
+      existingBatch.dispensaryQuantity = 0;
       if (existingBatch.originalQuantity !== undefined) {
         existingBatch.originalQuantity += addQty;
       }
-      if (expiryDate) existingBatch.expiryDate = expiryDate;
+      if (expiryDate) existingBatch.expiryDate = targetExpiry;
       if (buyingPrice) existingBatch.buyingPrice = Number(buyingPrice);
       if (targetSupplier) existingBatch.supplierId = targetSupplier;
       if (targetInvoice) (existingBatch as any).purchaseInvoiceNumber = targetInvoice;
@@ -4948,8 +5439,8 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
         buyingPrice: Number(buyingPrice) || Number(med.buyingPrice) || 0,
         supplierId: targetSupplier,
         isDamaged: !!isDamaged,
-        storeQuantity: Number(storeQuantity) || addQty,
-        dispensaryQuantity: Number(dispensaryQuantity) || 0,
+        storeQuantity: addQty,
+        dispensaryQuantity: 0,
         originalQuantity: addQty,
         createdAt: new Date().toISOString().split('T')[0],
         purchaseInvoiceNumber: targetInvoice || undefined
@@ -5830,13 +6321,156 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
     res.json(tx);
   });
 
+  app.post('/api/suppliers/transactions/:id/attach-receipt', (req, res) => {
+    const { id } = req.params;
+    const { recipientName, receiptAttachment, receiptFileName, operatorId } = req.body;
+    const db = loadDb();
+    const tx = db.supplierTransactions?.find(t => t.id === id);
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+    if (recipientName !== undefined) tx.recipientName = String(recipientName).trim();
+    if (receiptAttachment !== undefined) tx.receiptAttachment = receiptAttachment;
+    if (receiptFileName !== undefined) tx.receiptFileName = receiptFileName;
+    saveDb(db);
+
+    const userObj = db.users.find(u => u.id === operatorId) || { username: 'admin', role: UserRole.SUPER_ADMIN, id: 'admin' };
+    logActivity(
+      userObj.id,
+      userObj.username,
+      userObj.role,
+      'Update Payment Receipt',
+      'all',
+      'All Branches',
+      `Attached receipt voucher/recipient for supplier transaction ref ${tx.reference || tx.id}`
+    );
+
+    res.json(tx);
+  });
+
   app.get('/api/suppliers/transactions', (req, res) => {
     const db = loadDb();
     res.json(db.supplierTransactions || []);
   });
 
+  app.get('/api/suppliers/outbound-credit-summary', (req, res) => {
+    const db = loadDb();
+    const today = new Date().toISOString().split('T')[0];
+    const todayTime = new Date(today).getTime();
+    const next7DaysTime = todayTime + 7 * 24 * 60 * 60 * 1000;
+
+    const suppliers = db.suppliers || [];
+    const transactions = db.supplierTransactions || [];
+
+    let totalOutboundCredit = 0;
+    let totalOverdue = 0;
+    let totalDueSoon = 0;
+    const notifications: any[] = [];
+
+    const supplierCreditTotals = suppliers.map(s => {
+      const sTxs = transactions.filter(t => t.supplierId === s.id);
+      const creditTxs = sTxs.filter(t => t.type === 'Purchase Credit');
+      const paymentTxs = sTxs.filter(t => t.type === 'Payment');
+
+      const totalCreditPurchased = creditTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const totalPaid = paymentTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      
+      const activeCreditInvoices = creditTxs.filter(t => t.paymentStatus !== 'Paid');
+      let supplierOverdue = 0;
+      let supplierDueSoon = 0;
+      let supplierPendingCreditBalance = 0;
+
+      for (const ctx of activeCreditInvoices) {
+        const remaining = Math.max(0, (Number(ctx.amount) || 0) - (Number(ctx.paidAmount) || 0));
+        supplierPendingCreditBalance += remaining;
+
+        const isOverdue = ctx.dueDate && ctx.dueDate < today;
+        const isDueToday = ctx.dueDate && ctx.dueDate === today;
+        let dueTime = ctx.dueDate ? new Date(ctx.dueDate).getTime() : 0;
+        const isDueSoon = ctx.dueDate && dueTime >= todayTime && dueTime <= next7DaysTime;
+
+        if (isOverdue) supplierOverdue += remaining;
+        if (isDueSoon || isDueToday) supplierDueSoon += remaining;
+
+        let daysDiff = 0;
+        if (ctx.dueDate) {
+          daysDiff = Math.round((new Date(ctx.dueDate).getTime() - todayTime) / (1000 * 60 * 60 * 24));
+        }
+
+        notifications.push({
+          id: ctx.id,
+          supplierId: s.id,
+          supplierName: s.name,
+          supplierPhone: s.phone,
+          reference: ctx.reference || ctx.id,
+          invoiceDate: ctx.date,
+          dueDate: ctx.dueDate,
+          paymentTerms: ctx.paymentTerms || 'Net 30',
+          amount: Number(ctx.amount) || 0,
+          paidAmount: Number(ctx.paidAmount) || 0,
+          remainingAmount: remaining,
+          paymentStatus: ctx.paymentStatus || (isOverdue ? 'Overdue' : 'Pending'),
+          isOverdue: !!isOverdue,
+          isDueToday: !!isDueToday,
+          isDueSoon: !!isDueSoon,
+          daysDiff: daysDiff,
+          branchId: ctx.branchId
+        });
+      }
+
+      // Outstanding balance is either from supplier.balance or calculated from transactions
+      const outstandingBalance = Math.max(s.balance || 0, supplierPendingCreditBalance);
+      totalOutboundCredit += outstandingBalance;
+      totalOverdue += supplierOverdue;
+      totalDueSoon += supplierDueSoon;
+
+      return {
+        supplierId: s.id,
+        supplierName: s.name,
+        phone: s.phone,
+        email: s.email,
+        address: s.address,
+        totalCreditPurchased,
+        totalPaid,
+        outstandingBalance,
+        supplierOverdue,
+        supplierDueSoon,
+        totalCreditInvoicesCount: creditTxs.length,
+        activeCreditInvoicesCount: activeCreditInvoices.length,
+        overdueInvoicesCount: activeCreditInvoices.filter(t => t.dueDate && t.dueDate < today).length
+      };
+    });
+
+    // Sort notifications: overdue first (lowest daysDiff), then due today, then due soon
+    notifications.sort((a, b) => a.daysDiff - b.daysDiff);
+
+    res.json({
+      totalOutboundCredit,
+      totalOverdue,
+      totalDueSoon,
+      totalActiveInvoices: notifications.length,
+      supplierCreditTotals,
+      notifications
+    });
+  });
+
   app.post('/api/suppliers/transactions', (req, res) => {
-    const { supplierId, date, type, amount, reference, dueDate, notes, operatorId, paymentTerms, creditTransactionId, branchId } = req.body;
+    const { 
+      supplierId, 
+      date, 
+      type, 
+      amount, 
+      reference, 
+      dueDate, 
+      notes, 
+      operatorId, 
+      paymentTerms, 
+      creditTransactionId, 
+      branchId,
+      recipientName,
+      receiptAttachment,
+      receiptFileName
+    } = req.body;
     const db = loadDb();
 
     const supplier = db.suppliers.find(s => s.id === supplierId);
@@ -5861,6 +6495,13 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
         } else {
           creditTx.paymentStatus = 'Partially Paid';
         }
+        if (recipientName && !creditTx.recipientName) {
+          creditTx.recipientName = String(recipientName).trim();
+        }
+        if (receiptAttachment && !creditTx.receiptAttachment) {
+          creditTx.receiptAttachment = receiptAttachment;
+          creditTx.receiptFileName = receiptFileName;
+        }
         targetCreditTxRef = `Pay: ${creditTx.reference || creditTx.id}`;
       }
     } else if (type === 'Payment' && reference) {
@@ -5880,6 +6521,13 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
           } else {
             creditTx.paymentStatus = 'Partially Paid';
           }
+          if (recipientName && !creditTx.recipientName) {
+            creditTx.recipientName = String(recipientName).trim();
+          }
+          if (receiptAttachment && !creditTx.receiptAttachment) {
+            creditTx.receiptAttachment = receiptAttachment;
+            creditTx.receiptFileName = receiptFileName;
+          }
         }
       }
     }
@@ -5896,7 +6544,10 @@ ${JSON.stringify(catalogList.slice(0, 150))}`;
       notes: notes || undefined,
       paidAmount: type === 'Purchase Credit' ? 0 : undefined,
       paymentStatus: type === 'Purchase Credit' ? 'Pending' : undefined,
-      paymentTerms: type === 'Purchase Credit' ? (paymentTerms || 'Net 30') : undefined
+      paymentTerms: type === 'Purchase Credit' ? (paymentTerms || 'Net 30') : undefined,
+      recipientName: recipientName ? String(recipientName).trim() : undefined,
+      receiptAttachment: receiptAttachment || undefined,
+      receiptFileName: receiptFileName || undefined
     };
 
     if (!db.supplierTransactions) {
@@ -9207,6 +9858,7 @@ Please generate a deep financial report containing:
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
+      configFile: path.resolve(process.cwd(), 'vite.config.ts'),
       server: { middlewareMode: true },
       appType: 'spa',
     });
